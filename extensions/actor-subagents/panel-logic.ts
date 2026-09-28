@@ -265,22 +265,15 @@ type HistMessage = {
 
 const trunc = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)}…` : s);
 
-/** Concatenated thinking text of an assistant message ("" if none). */
-function thinkingText(m: HistMessage): string {
-	if (!Array.isArray(m.content)) return "";
-	return (m.content as { type?: string; thinking?: string }[])
-		.filter((p) => p?.type === "thinking")
-		.map((p) => p.thinking ?? "")
-		.join("");
-}
-
 /**
  * Render a window of an agent's transcript as plain text. A single slice primitive covers
  * beginning/middle/end: offset>=0 counts from the start (0 = beginning, the default),
  * offset<0 counts from the end (-30 = last 30). The header reports total + the shown range
  * so callers can page deterministically. The system prompt is included only when the window
  * covers index 0 (so the default offset:0 yields the agent's task + first exchange).
- * Thinking blocks are shown only when not hidden (aligned with the main UI's hideThinkingBlock).
+ * Thinking blocks are never shown: an agent's reasoning is its private scratchpad, so peers
+ * judge it by what it says and does (text, tool calls, messages), which is also what the
+ * agent system prompt promises.
  * Tool results are truncated hard (they are the bloat); message text is kept fuller.
  */
 export function formatHistory(opts: {
@@ -289,9 +282,8 @@ export function formatHistory(opts: {
 	messages: HistMessage[];
 	offset?: number;
 	limit?: number;
-	hideThinking?: boolean;
 }): string {
-	const { name, systemPrompt, messages, hideThinking } = opts;
+	const { name, systemPrompt, messages } = opts;
 	const total = messages.length;
 	const limit = Math.max(1, opts.limit ?? 30);
 	const raw = opts.offset ?? 0;
@@ -303,10 +295,6 @@ export function formatHistory(opts: {
 		const m = messages[i];
 		const role = m.role ?? "?";
 		if (role === "assistant") {
-			if (!hideThinking) {
-				const th = thinkingText(m);
-				if (th) lines.push(`#${i} assistant·thinking: ${trunc(th, 800)}`);
-			}
 			const txt = messageText(m.content);
 			if (txt) lines.push(`#${i} assistant: ${trunc(txt, 800)}`);
 			for (const c of toolCalls(m)) lines.push(`#${i} ⚙ ${c.name}(${trunc(JSON.stringify(c.arguments), 200)})`);

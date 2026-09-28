@@ -265,7 +265,6 @@ export default function subagents(pi: ExtensionAPI) {
       resumeAgents,
       persistRoster,
       updateStatus,
-      getHideThinking,
     });
 
   // One fixed custom type gives every peer message a distinct, stable visual identity. The
@@ -314,8 +313,8 @@ export default function subagents(pi: ExtensionAPI) {
   let subDir: string | undefined;
 
   // Read the live hideThinkingBlock setting (the static config AND the ctrl+t runtime toggle
-  // both persist to it). reload() picks up runtime toggles; we read fresh per panel-open and
-  // per subagent_history call so subagent thinking display stays aligned with the main UI.
+  // both persist to it). reload() picks up runtime toggles; we read fresh per panel-open so
+  // the panel's thinking display stays aligned with the main UI.
   let settingsMgr: SettingsManager | undefined;
   const getHideThinking = async (): Promise<boolean> => {
     try {

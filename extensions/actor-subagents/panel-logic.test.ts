@@ -46,14 +46,13 @@ test("formatHistory: negative offset shows the tail, no system prompt", () => {
 	assert.doesNotMatch(out, /── system ──/); // window does not cover index 0
 });
 
-test("formatHistory: thinking shown/hidden per flag; tool calls + results rendered", () => {
-	const shown = formatHistory({ name: "a", messages: histMsgs, offset: 1, limit: 2 });
-	assert.match(shown, /assistant·thinking: secret reasoning/);
-	assert.match(shown, /⚙ send_message\(/);
-	assert.match(shown, /⚙→ sent to main/);
-	const hidden = formatHistory({ name: "a", messages: histMsgs, offset: 1, limit: 2, hideThinking: true });
-	assert.doesNotMatch(hidden, /secret reasoning/);
-	assert.match(hidden, /assistant: on it/);
+test("formatHistory: never shows thinking; text, tool calls + results rendered", () => {
+	const out = formatHistory({ name: "a", messages: histMsgs, offset: 1, limit: 2 });
+	assert.doesNotMatch(out, /secret reasoning/);
+	assert.doesNotMatch(out, /thinking/);
+	assert.match(out, /assistant: on it/);
+	assert.match(out, /⚙ send_message\(/);
+	assert.match(out, /⚙→ sent to main/);
 });
 
 test("formatHistory labels peer traffic as a subagent message, not a user message", () => {

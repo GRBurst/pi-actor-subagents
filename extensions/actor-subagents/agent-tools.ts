@@ -97,8 +97,6 @@ export interface AgentToolsDeps {
   persistRoster: () => void;
   /** Refresh the status widget after a change an agent made. */
   updateStatus: () => void;
-  /** The main UI's hideThinkingBlock setting, so subagent_history matches what the human sees. */
-  getHideThinking: () => Promise<boolean>;
 }
 
 /** Build the toolset acting as `selfName`. */
@@ -113,7 +111,6 @@ export function makeAgentTools(
     resumeAgents,
     persistRoster,
     updateStatus,
-    getHideThinking,
   } = deps;
   return [
     defineTool({
@@ -403,7 +400,8 @@ export function makeAgentTools(
           context?.expanded ?? false,
         ),
       description:
-        "Inspect a background agent's message transcript ('main' is the foreground chat and has no " +
+        "Inspect a background agent's message transcript: response text, tool calls and messages, never " +
+        "thinking ('main' is the foreground chat and has no " +
         "mirrored transcript). offset: start index (0 = beginning, the default; " +
         "negative = from the end, e.g. -30 = last 30). limit: window size (default 30). The header " +
         "reports the total message count and the shown range so you can page through.",
@@ -452,7 +450,6 @@ export function makeAgentTools(
           }[],
           offset: args.offset,
           limit: args.limit,
-          hideThinking: await getHideThinking(),
         });
         return { content: [{ type: "text", text }], details: {} };
       },

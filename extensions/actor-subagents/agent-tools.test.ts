@@ -26,7 +26,6 @@ function toolOf(engine: Engine, self: string, name: string) {
 		resumeAgents: (by, names) => engine.resume(by, names),
 		persistRoster: () => {},
 		updateStatus: () => {},
-		getHideThinking: async () => false,
 	});
 	const tool = tools.find((t) => t.name === name);
 	assert.ok(tool, `${name} tool must exist`);
