@@ -29,33 +29,6 @@ function assistantToolCalls(m: RawMessage): { id: string; name: string }[] {
 		.map((p) => ({ id: p.id as string, name: p.name ?? "tool" }));
 }
 
-/** Index of the last assistant message, or -1. */
-function lastAssistantIndex(messages: RawMessage[]): number {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		if (messages[i]?.role === "assistant") return i;
-	}
-	return -1;
-}
-
-/**
- * Tool-call ids of the LAST assistant message that have no matching `toolResult`
- * after it. A crash between persisting an assistant tool_use and its tool_result
- * leaves such danglers; the provider rejects a tool_use without a tool_result, so the
- * caller must synthesize a result for each before resuming.
- */
-export function danglingToolResultIds(messages: RawMessage[]): { id: string; name: string }[] {
-	const idx = lastAssistantIndex(messages);
-	if (idx === -1) return [];
-	const calls = assistantToolCalls(messages[idx]);
-	if (calls.length === 0) return [];
-	const resolved = new Set<string>();
-	for (let i = idx + 1; i < messages.length; i++) {
-		const m = messages[i];
-		if (m?.role === "toolResult" && typeof m.toolCallId === "string") resolved.add(m.toolCallId);
-	}
-	return calls.filter((c) => !resolved.has(c.id));
-}
-
 /**
  * Derive an agent's restored status from its transcript tail.
  * idle = the agent finished its turn: the last message is an assistant answer with no

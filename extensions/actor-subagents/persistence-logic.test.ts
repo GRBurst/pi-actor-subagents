@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	danglingToolResultIds,
 	deriveStatus,
 	parseRoster,
 	type RawMessage,
@@ -20,30 +19,6 @@ const assistant = (calls: { id: string; name?: string }[], stopReason?: string):
 });
 const toolResult = (id: string): RawMessage => ({ role: "toolResult", toolCallId: id });
 const user = (): RawMessage => ({ role: "user", content: "hi" });
-
-test("danglingToolResultIds: trailing single tool call, no result -> dangling", () => {
-	const msgs = [user(), assistant([{ id: "t1" }])];
-	assert.deepEqual(danglingToolResultIds(msgs), [{ id: "t1", name: "bash" }]);
-});
-
-test("danglingToolResultIds: matched result -> none", () => {
-	const msgs = [user(), assistant([{ id: "t1" }]), toolResult("t1")];
-	assert.deepEqual(danglingToolResultIds(msgs), []);
-});
-
-test("danglingToolResultIds: parallel calls, partial results -> only unmatched", () => {
-	const msgs = [assistant([{ id: "a" }, { id: "b" }, { id: "c", name: "read" }]), toolResult("b")];
-	assert.deepEqual(danglingToolResultIds(msgs), [
-		{ id: "a", name: "bash" },
-		{ id: "c", name: "read" },
-	]);
-});
-
-test("danglingToolResultIds: clean answer / no trailing assistant -> none", () => {
-	assert.deepEqual(danglingToolResultIds([user(), assistant([])]), []);
-	assert.deepEqual(danglingToolResultIds([user()]), []);
-	assert.deepEqual(danglingToolResultIds([]), []);
-});
 
 test("deriveStatus: clean assistant answer -> idle", () => {
 	assert.equal(deriveStatus([user(), assistant([])]), "idle");

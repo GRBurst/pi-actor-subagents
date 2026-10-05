@@ -45,6 +45,16 @@ For a file-backed main session, state lives at:
 
 `roster.json` records enough validated membership and session metadata to rebuild the swarm. Child conversations remain native pi JSONL sessions. Malformed roster data is ignored rather than partially trusted.
 
+### Interrupted work
+
+An assistant tool call and its result are separate persisted messages. An interruption can therefore leave a call without a result even when the tool's side effect already happened. A missing result means an unknown outcome, not proof of non-execution.
+
+Restore reconnects the observed transcript without appending synthetic tool results. Restored agents remain paused through their ancestry; explicit resume supplies an interrupted agent with a nudge to inspect actual state before retrying side effects. The extension does not replay tools. Exactly-once execution and rollback would require support from the tools or target systems, not transcript repair. Existing synthetic results from earlier versions are not migrated.
+
+Pi owns outbound provider-message normalization (Separation of Concerns): its direct built-in adapters normalize incomplete tool-call/result sequences at the request boundary without changing the stored transcript. Resume depends on that SDK/provider contract. Regression tests exercise the installed, development-pinned Pi version; they do not certify arbitrary future versions, the `pi-messages` gateway, or custom-provider paths. Those paths must provide equivalent normalization to support interrupted histories safely.
+
+### Process reload
+
 The engine, foreground sink, foreground state, and restore guard use versioned `__subagents*` keys on `globalThis`. Those key names are runtime compatibility contracts: they keep same-version `/reload` connected to live children and deliberately change only when an incompatible in-memory shape requires a new singleton. A reload that finds an engine of an earlier generation shuts its children down before building the new one, because that generation's records are unreachable from the new code while its sessions would keep running; the roster on disk is what carries the swarm to the next start.
 
 ## Interfaces

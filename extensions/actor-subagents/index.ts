@@ -45,7 +45,6 @@ import {
 } from "./panel-logic.ts";
 import { createSubagentsPanel } from "./panel.ts";
 import {
-  danglingToolResultIds,
   deriveStatus,
   type RawMessage,
   restoredPlacement,
@@ -115,7 +114,7 @@ const RESUME_NUDGE = (now: Date) => {
   const stamp =
     `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ` +
     `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  return `[resumed ${stamp}] continue your interrupted work`;
+  return `[resumed ${stamp}] Continue your interrupted work. A missing tool result means the action outcome is UNKNOWN, not that it failed or had no effect. Inspect actual external state before retrying side-effecting actions.`;
 };
 // The Engine is a globalThis singleton so it survives /reload. Consequence: a persisted
 // instance keeps the SHAPE (methods) of the code that built it — adding/changing Engine
@@ -499,24 +498,6 @@ export default function subagents(pi: ExtensionAPI) {
   // Tools for a specific agent (name bound fixed) — used for the foreground 'main'
   // via pi.registerTool and for background agents via customTools.
 
-  // Repair a crash-truncated transcript before the LLM sees it: a kill between persisting an
-  // assistant tool_use and its tool_result leaves a dangling tool_use, which providers reject.
-  // pi does NOT reconcile on load (verified: convertToLlm + buildSessionContext pass messages
-  // verbatim), so synthesize the missing tool_result here. appendMessage also rewrites the file.
-  const reconcileDangling = (sm: SessionManager): void => {
-    const msgs = sm.buildSessionContext().messages as RawMessage[];
-    for (const { id, name } of danglingToolResultIds(msgs)) {
-      sm.appendMessage({
-        role: "toolResult",
-        toolCallId: id,
-        toolName: name,
-        content: [{ type: "text", text: "Interrupted — not completed" }],
-        isError: true,
-        timestamp: Date.now(),
-      } as never);
-    }
-  };
-
   // SDK adapter: creates an isolated background agent session. With existingFile it reopens a
   // persisted session (restart resume); otherwise it starts a fresh persisted session under
   // subDir (or in-memory when no main-session dir is available).
@@ -571,7 +552,8 @@ export default function subagents(pi: ExtensionAPI) {
     let sm: SessionManager;
     if (existingFile) {
       sm = SessionManager.open(existingFile);
-      reconcileDangling(sm);
+      // Separation of Concerns: Pi normalizes outbound requests; restoration keeps
+      // observed history intact because a missing result cannot prove an action failed.
     } else if (subDir) {
       fs.mkdirSync(subDir, { recursive: true });
       sm = SessionManager.create(cwd, subDir);
@@ -696,8 +678,8 @@ export default function subagents(pi: ExtensionAPI) {
     return s;
   };
 
-  // Cold-start rebuild of a persisted swarm AS PAUSED: reopen each agent file, reconcile any
-  // crash damage, derive idle-vs-mid-turn from the transcript tail, register, then pause main's
+  // Cold-start rebuild of a persisted swarm AS PAUSED: reopen each agent file without inventing
+  // outcomes, derive idle-vs-mid-turn from the transcript tail, register, then pause main's
   // direct children. The existing resume_subagents()/`/subagents-resume` then re-triggers exactly
   // the interrupted agents.
   const restoreSwarm = async (): Promise<void> => {

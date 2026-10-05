@@ -29,7 +29,7 @@ An agent entering the error state — a thrown exception or a logical run the SD
 
 Agent and session events update `engine.ts`. The panel and feed project that state through pure formatting modules. The panel renders a child's transcript with pi's own chat components, so `AgentView` (in `agent-record.ts`, implemented by `spawner.ts`) also exposes the child session's `getToolDefinition`: a tool call is drawn by the tool's own renderer instead of as a bare name. Agent-to-agent traffic uses the structured custom message defined by `agent-message.ts`; `index.ts` owns delivery to the current foreground session.
 
-When the main session is file-backed, `persistence.ts` stores `roster.json` and child JSONL sessions under `<main-session-dir>/subagents/<main-session-id>/`. Restore validates the roster through `persistence-logic.ts` and reconnects each child session. These paths and formats are compatibility contracts.
+When the main session is file-backed, `persistence.ts` stores `roster.json` and child JSONL sessions under `<main-session-dir>/subagents/<main-session-id>/`. Restore validates the roster through `persistence-logic.ts` and reconnects each child session without appending synthetic tool results. Restored agents stay paused; `deriveStatus` marks interrupted work for an explicit resume nudge that treats missing tool outcomes as unknown. Pi owns outbound provider-message normalization; its SDK/provider contract and recovery limits are documented in `DESIGN.md#interrupted-work`. These paths and formats are compatibility contracts.
 
 ## External interfaces
 
@@ -55,6 +55,7 @@ There are no open ports or separate services. The extension has the same process
 - `agent-tools.ts`: orchestration tool definitions shared by foreground and children
 - `spawner.ts`: child session lifecycle and event bridge
 - `persistence.ts`, `persistence-logic.ts`: durable files and validated restoration
+- `pi-resume-compatibility.test.ts`: installed Pi session reopening and outbound normalization contract tests
 - `agent-message.ts`, `agent-message-renderer.ts`: structured peer messages and TUI rendering
 - `error-notification.ts`: pure rule for who is notified when an agent enters the error state
 - `tool-timestamp.ts`: pure tool-result stamper (wall-clock start + finish times)

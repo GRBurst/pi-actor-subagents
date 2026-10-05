@@ -18,7 +18,7 @@ The interactive UI shows a compact roster and provides:
 - `/subagents-pause` and `/subagents-resume` — stop or continue agents by name, each with its subtree (no name = `main`'s direct children; a pause another agent set on its own child stays)
 - `/subagents-kill` — terminate agents by name, each with its subtree (no name = all)
 
-Saved swarms live beside the main pi session under `subagents/<main-session-id>/` and are restored, paused, when that session returns.
+Saved swarms live beside the main pi session under `subagents/<main-session-id>/` and are restored, paused, when that session returns. Resume does not replay interrupted tools: a missing result means the action's outcome is unknown, so the agent is instructed to check actual state before retrying side effects. Provider compatibility and recovery limits are documented in [DESIGN.md](DESIGN.md#interrupted-work).
 
 ## Settings
 
