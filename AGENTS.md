@@ -25,7 +25,7 @@ A spawn request is checked by `engine.ts`, resolved by `resolve-model.ts`, const
 
 Every tool result carries the wall-clock times it started and finished, so agents can measure elapsed time and a tool's own duration (which is what `set_status`'s `etaMinutes` needs). The start time is captured at `tool_call` and paired to the result by call id. A pi hook only fires in the session that registered it, so `index.ts` registers it twice: directly for the foreground, and as an inline `extensionFactories` entry in every child session. That in-process channel is separate from `additionalExtensionPaths`, which stays exactly the configured `childExtensions` policy. Both registrations apply the pure `tool-timestamp.ts`.
 
-An agent entering the error state — a thrown exception or a logical run the SDK settled after exhausting retries — emits one `error` event per failed run, and `index.ts` delivers a notification to that agent's direct parent as ordinary peer traffic, so a parent parked on a reply that can no longer come is woken. `error-notification.ts` decides who is told.
+Control operations carry their actor (`by`): an agent name, `user` for the human's commands and panel, or `restore` for session restore; the latter two act with `main`'s authority (`authorize.ts`). An agent entering the error state — a thrown exception or a logical run the SDK settled after exhausting retries — emits one `error` event per failed run. For pause, resume, kill and error the engine tells the affected agents' direct parents through `Engine.notify`: `lifecycle-notice.ts` decides who is told what, and the handle's `append` writes the notice into the transcript without starting a turn. Notices wait in the engine while the recipient's `busy()` is true and are flushed by `flushNotices` when its run or hand-off settles (`spawner.ts` for children, `agent_settled` in `index.ts` for main). Nothing wakes on an error.
 
 Agent and session events update `engine.ts`. The panel and feed project that state through pure formatting modules. The panel renders a child's transcript with pi's own chat components, so `AgentView` (in `agent-record.ts`, implemented by `spawner.ts`) also exposes the child session's `getToolDefinition`: a tool call is drawn by the tool's own renderer instead of as a bare name. Agent-to-agent traffic uses the structured custom message defined by `agent-message.ts`; `index.ts` owns delivery to the current foreground session.
 
@@ -36,7 +36,8 @@ When the main session is file-backed, `persistence.ts` stores `roster.json` and 
 - Pi package entry: `extensions/actor-subagents/index.ts`
 - Agent tools (`agent-tools.ts`, shared by every agent; 'main' skips `set_status`): `spawn_subagent`, `send_message`, `set_subagent_model`, `list_subagents`, `subagent_history`, `set_status`, `pause_subagents`, `resume_subagents`, `kill_subagents`
 - Commands: `/subagents`, `/subagents-pause`, `/subagents-resume`, `/subagents-kill`
-- Custom message type and details shape: `agent-message.ts`
+- Custom message type and details shape: `agent-message.ts` (also carries lifecycle notices, sender `scheduler`)
+- Reserved agent names: `main`, `scheduler`, `user`, `restore` (`engine.ts`)
 - Settings (caps and child capability policy): `<pi agent dir>/actor-subagents/settings.json`, the agent dir being the SDK's `getAgentDir()` (normally `~/.pi/agent`)
 - Persistence: `<main-session-dir>/subagents/<main-session-id>/`
 - Process reload compatibility: every `__subagents*` `globalThis` key in `index.ts`
@@ -48,7 +49,7 @@ There are no open ports or separate services. The extension has the same process
 - `index.ts`: pi integration, lifecycle, child construction, persistence orchestration, commands and UI wiring
 - `engine.ts`: stateful actor registry and orchestration: spawn/attach, scheduling, routing, pause/resume, kill/retune
 - `spawn-tree.ts`: pure spawn-tree rules (ancestry, children, kill order, derived pause `pausedBy`)
-- `authorize.ts`: the subtree authority rule, "who spawns, owns"
+- `authorize.ts`: the subtree authority rule, "who spawns, owns", and the non-agent actors `user`/`restore`
 - `abort-tracker.ts`: per-agent aborts in flight, which resume waits for
 - `agent-record.ts`, `agent-event.ts`, `control-result.ts`: the engine's record, event and control-result types
 - `settings.ts`: pure parser for `settings.json` (caps + child extension policy) and the default caps
@@ -57,7 +58,8 @@ There are no open ports or separate services. The extension has the same process
 - `persistence.ts`, `persistence-logic.ts`: durable files and validated restoration
 - `pi-resume-compatibility.test.ts`: installed Pi session reopening and outbound normalization contract tests
 - `agent-message.ts`, `agent-message-renderer.ts`: structured peer messages and TUI rendering
-- `error-notification.ts`: pure rule for who is notified when an agent enters the error state
+- `lifecycle-notice.ts`: pure rule for who is told about a pause, resume, kill or error, and what
+- `pi-silent-append.test.ts`: installed Pi contract that a `triggerTurn: false` custom message on an idle session appends without a turn
 - `tool-timestamp.ts`: pure tool-result stamper (wall-clock start + finish times)
 - `panel.ts`, `panel-logic.ts`, `feed.ts`: interactive and textual projections
 - focused `*.ts` helpers: pure domain rules; adjacent `*.test.ts` files are their tests

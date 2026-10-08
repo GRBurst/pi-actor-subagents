@@ -10,7 +10,7 @@ pi install git:github.com/fdietze/pi-actor-subagents
 
 ## Interface
 
-Every agent receives `spawn_subagent`, `send_message`, `set_subagent_model`, `list_subagents`, `subagent_history`, `set_status`, `pause_subagents`, `resume_subagents`, and `kill_subagents` (`set_status` is for background agents only). An agent pauses, resumes and kills only the agents it spawned and their descendants, and retunes those or itself; `main` owns them all. Messaging and inspection are open to everyone. Child agents receive the orchestration tools through pi's `customTools`; actor-subagents is not recursively loaded as a child extension.
+Every agent receives `spawn_subagent`, `send_message`, `set_subagent_model`, `list_subagents`, `subagent_history`, `set_status`, `pause_subagents`, `resume_subagents`, and `kill_subagents` (`set_status` is for background agents only). An agent pauses, resumes and kills only the agents it spawned and their descendants, and retunes those or itself; `main` owns them all. Messaging and inspection are open to everyone. Each agent is told silently — without being woken — when its children are paused, resumed, killed or fail, and by whom; statuses name the cause too (`paused by user`, `error: <reason>`). Child agents receive the orchestration tools through pi's `customTools`; actor-subagents is not recursively loaded as a child extension.
 
 The interactive UI shows a compact roster and provides:
 
