@@ -5,7 +5,6 @@ import { formatStatus } from "./agent-status.ts";
 import type { AgentHandle } from "./agent-record.ts";
 import type { EngineResumeResult } from "./control-result.ts";
 import { Engine } from "./engine.ts";
-import { errorNotification } from "./error-notification.ts";
 import { formatSendTargets } from "./panel-logic.ts";
 
 const fakeHandle = (): AgentHandle => ({
@@ -1003,7 +1002,6 @@ test("the spawn tree is derived from the live records", async () => {
 	// chain() registers through addAgent, the restore path, so restored parents are covered too.
 	const { e } = chain();
 	assert.deepEqual(e.getSpawnTree(), { a: "main", b: "a", c: "b" });
-	assert.equal(errorNotification({ name: "c", reason: "boom" }, e.getSpawnTree(), e.liveNames())?.to, "b");
 	await e.kill("main", ["b"]);
 	assert.deepEqual(e.getSpawnTree(), { a: "main" }, "killed agents leave no stale parent entries");
 });
@@ -1279,4 +1277,87 @@ test("the error reason is recorded with the error event and cleared with the sto
 	e.setStopReason("w", "error", "boom");
 	e.setStopReason("w", "stop");
 	assert.equal(e.get("w")?.errorReason, undefined);
+});
+
+/** An agent whose silent appends and busy state the test controls. */
+function noticeAgent(name: string, spawnedBy: string, depth: number) {
+	const appended: string[] = [];
+	const delivered: RoutedAgentMessage[] = [];
+	const state = { busy: false };
+	const record = {
+		...mainRecord(),
+		name,
+		spawnedBy,
+		depth,
+		handle: {
+			deliver: async (m: RoutedAgentMessage) => void delivered.push(m),
+			abort: async () => {},
+			append: (m: RoutedAgentMessage) => void appended.push(...m.parts.map((p) => `${p.from}: ${p.content}`)),
+			busy: () => state.busy,
+		},
+	};
+	return { record, appended, delivered, state };
+}
+
+test("the user's pause tells main silently; main's own pause tells nobody", () => {
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+	const main = noticeAgent("main", "main", 0);
+	e.addAgent(main.record);
+	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
+	e.addAgent({ ...mainRecord(), name: "b", depth: 1 });
+	e.pause("main", ["a"]);
+	assert.deepEqual(main.appended, []);
+	e.pause("user", ["a", "b"]); // a is already paused: only b changes
+	assert.equal(main.appended.length, 1);
+	assert.match(main.appended[0] ?? "", /^scheduler: \[\d\d:\d\d:\d\d\] your subagent b was paused by user\.$/);
+	assert.deepEqual(main.delivered, [], "no turn is started");
+});
+
+test("an agent is told when someone above it acts on its child, and only about its direct children", async () => {
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+	const main = noticeAgent("main", "main", 0);
+	const lead = noticeAgent("lead", "main", 1);
+	e.addAgent(main.record);
+	e.addAgent(lead.record);
+	e.addAgent({ ...mainRecord(), name: "helper", spawnedBy: "lead", depth: 2 });
+	e.pause("main", ["helper"]);
+	assert.match(lead.appended[0] ?? "", /helper was paused by main/);
+	await e.resume("lead", ["helper"]);
+	assert.equal(lead.appended.length, 1, "lead resumed it itself");
+	e.pause("user", ["lead"]); // helper is held through lead, but only lead was acted on
+	assert.match(main.appended.at(-1) ?? "", /your subagent lead was paused by user/);
+	assert.equal(lead.appended.length, 1);
+});
+
+test("a notice waits while the recipient is busy, and a paused recipient takes it at once", async () => {
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+	e.addAgent(mainRecord());
+	const lead = noticeAgent("lead", "main", 1);
+	e.addAgent(lead.record);
+	e.addAgent({ ...mainRecord(), name: "helper", spawnedBy: "lead", depth: 2 });
+
+	lead.state.busy = true;
+	e.reportError("helper", "boom");
+	e.flushNotices("lead"); // still busy: nothing moves
+	assert.deepEqual(lead.appended, []);
+	lead.state.busy = false;
+	e.flushNotices("lead");
+	assert.match(lead.appended[0] ?? "", /your subagent helper entered the error state: boom\.$/);
+
+	e.pause("main", ["lead"]);
+	e.beginTurn("helper");
+	e.reportError("helper", "again");
+	assert.match(lead.appended[1] ?? "", /again/, "paused means idle: appended, not parked in the inbox");
+	assert.equal(e.get("lead")?.pausedInbox, undefined);
+});
+
+test("a kill tells the surviving parent of each named target, not a parent killed with it", async () => {
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+	const main = noticeAgent("main", "main", 0);
+	e.addAgent(main.record);
+	e.addAgent({ ...mainRecord(), name: "lead", depth: 1 });
+	e.addAgent({ ...mainRecord(), name: "helper", spawnedBy: "lead", depth: 2 });
+	await e.kill("user", ["helper", "lead"]);
+	assert.equal(main.appended.length, 1);
+	assert.match(main.appended[0] ?? "", /your subagent lead was killed by user\.$/);
 });

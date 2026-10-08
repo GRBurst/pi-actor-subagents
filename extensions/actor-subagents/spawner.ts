@@ -33,6 +33,10 @@ export interface SessionLike {
 		message: RoutedAgentMessage,
 		options?: { deliverAs?: "steer" | "followUp" },
 	): Promise<void> | void;
+	/** Append peer-format text to the transcript without starting a turn (only while not streaming). */
+	appendAgentMessage(message: RoutedAgentMessage): Promise<void> | void;
+	/** Is a run active (Pi's isStreaming: from the prompt's hand-off until agent_settled)? */
+	readonly isStreaming: boolean;
 	/** Deliver a real user-role turn (the panel's chatbox types AS the human, not as a peer). */
 	sendUserMessage(text: string): Promise<void> | void;
 	abort(): Promise<void> | void;
@@ -159,7 +163,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 	// run.abortRequested records that WE aborted the current logical run (a pause, a kill, or a
 	// refused turn). The SDK can file such a run as an "error" — a provider call that fails on the
 	// already aborted signal after a cancelled tool — so the settled outcome of that run is
-	// "aborted": a deliberate stop must not enter the error state or wake the parent. Our own fact
+	// "aborted": a deliberate stop must not enter the error state or notify the parent. Our own fact
 	// decides, not the SDK's wording (The Map Is Not the Territory). agent_start clears it, so an
 	// abort that hit no run cannot mask an error in the next one.
 	const subscribeBackground = (
@@ -194,7 +198,10 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 				const msg = ev.message as { role?: string } | undefined;
 				if (msg?.role === "assistant") streamingRef.msg = undefined;
 			}
-			if (ev.type === "agent_start" || ev.type === "message_start") engine.beginTurn(name);
+			// Only an assistant message opens a phase: a message_start for a silently appended notice
+			// (or the run's own prompt) is not work, and must not mark an idle agent as thinking.
+			if (ev.type === "agent_start" || (ev.type === "message_start" && (ev.message as { role?: string } | undefined)?.role === "assistant"))
+				engine.beginTurn(name);
 			// Refine the phase from streaming sub-events: reasoning vs answer text.
 			if (ev.type === "message_update") {
 				const sub = (ev.assistantMessageEvent as { type?: string } | undefined)?.type;
@@ -209,10 +216,11 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 			}
 			if (ev.type === "agent_settled") {
 				// The SDK emits agent_end for every retry attempt. Only agent_settled closes the
-				// logical run, so deriving its outcome here produces one parent notification.
+				// logical run, so deriving its outcome here produces one parent notice.
 				const outcome = lastAssistantOutcome(session.messages);
 				const stopReason = run.abortRequested && outcome?.stopReason === "error" ? "aborted" : outcome?.stopReason;
 				engine.setStopReason(name, stopReason, outcome?.errorMessage);
+				engine.flushNotices(name);
 			}
 			onActivity?.();
 		});
@@ -227,6 +235,20 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 		systemPrompt: string,
 	): { handle: AgentHandle; view: AgentView; close: () => Promise<void>; reconfigure: NonNullable<AgentRecord["reconfigure"]> } => {
 		const run = { abortRequested: false };
+		// Turns handed to the session whose promise has not settled yet. Pi resolves a prompted
+		// delivery only after its run settles, and a user message runs a preflight before its run
+		// is marked active, so this covers the gap from hand-off to isStreaming. It cannot stick: it
+		// counts promises, and every promise settles.
+		let handoffs = 0;
+		const handOff = async (send: () => Promise<void> | void): Promise<void> => {
+			handoffs++;
+			try {
+				await send();
+			} finally {
+				handoffs--;
+				engine.flushNotices(name);
+			}
+		};
 		const handle: AgentHandle = {
 			// Fire-and-forget: Pi's custom-message delivery awaits the prompted turn. Awaiting it
 			// would block the caller (e.g. the spawn_subagent tool) until the target agent finishes.
@@ -237,16 +259,20 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 			// to fully stop. The child-only in-memory steeringMode "all" makes several queued
 			// messages arrive at that boundary. Idle targets start a turn immediately.
 			deliver: async (message) => {
-				void Promise.resolve(session.sendAgentMessage(message, { deliverAs: "steer" })).catch((e) =>
+				void handOff(() => session.sendAgentMessage(message, { deliverAs: "steer" })).catch((e) =>
 					engine.reportError(name, e instanceof Error ? e.message : String(e)),
 				);
 			},
 			// A human-authored turn, steered in like peer traffic so a busy agent picks it up at its
 			// next turn boundary instead of only when it fully stops. The promise resolves with the
 			// prompted turn; the engine calls this fire-and-forget and reports a late failure.
-			deliverUser: async (text) => {
-				await session.sendUserMessage(text);
+			deliverUser: (text) => handOff(() => session.sendUserMessage(text)),
+			append: (message) => {
+				void Promise.resolve(session.appendAgentMessage(message)).catch(() => {
+					/* see Engine.flushNotices: a lost notice is state the pull tools still show */
+				});
 			},
+			busy: () => session.isStreaming || handoffs > 0,
 			// Bash first: abort() ends the agent loop but a tool already running keeps going, so a
 			// pause that leaves a build or test run alive would not be a pause at all. A failing bash
 			// cancel must not swallow the agent abort — stopping the loop is the part that must happen.

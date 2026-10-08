@@ -19,7 +19,6 @@ import {
 import { truncateToWidth } from "@earendil-works/pi-tui";
 import {
   AGENT_MESSAGE_CUSTOM_TYPE,
-  createRoutedAgentMessage,
   toCustomAgentMessage,
   type RoutedAgentMessage,
 } from "./agent-message.ts";
@@ -31,7 +30,6 @@ import type { AgentHandle } from "./agent-record.ts";
 import type { EngineResumeResult } from "./control-result.ts";
 import { authorityOf } from "./authorize.ts";
 import { Engine } from "./engine.ts";
-import { errorNotification } from "./error-notification.ts";
 import {
   formatControlResult,
   formatResumeResult,
@@ -199,17 +197,18 @@ function getEngine(): Engine {
 // captured `pi` becomes permanently stale (pi loader: state.staleMessage ??= ..., never
 // reset). Each freshly loaded instance overwrites the sink with its own live
 // pi.sendMessage, so the stored main handle never calls a dead pi.
-const MAIN_SINK_KEY = "__subagentsMainSink_v3";
-type MainSink = (message: RoutedAgentMessage) => void;
+// `silent` appends without starting a turn (lifecycle notices); otherwise the message wakes main.
+const MAIN_SINK_KEY = "__subagentsMainSink_v4";
+type MainSink = (message: RoutedAgentMessage, silent: boolean) => void;
 function setMainSink(sink: MainSink): void {
   (globalThis as Record<string, unknown>)[MAIN_SINK_KEY] = sink;
 }
-function deliverToMain(message: RoutedAgentMessage): void {
+function deliverToMain(message: RoutedAgentMessage, silent = false): void {
   const sink = (globalThis as Record<string, unknown>)[MAIN_SINK_KEY] as
     | MainSink
     | undefined;
   if (!sink) throw new Error("no live foreground session to deliver to 'main'");
-  sink(message);
+  sink(message, silent);
 }
 
 // Live foreground state read by the singleton 'main' record. Same reason as MAIN_SINK_KEY:
@@ -221,7 +220,28 @@ type MainLiveState = {
   usage:
     | { tokens: number | null; contextWindow: number; percent: number | null }
     | undefined;
+  /**
+   * Pi's own idle check (ctx.isIdle: no agent run active) from the latest foreground handler, so
+   * main's busy() reads the real run state like a child's isStreaming instead of a flag that a
+   * late agent_settled of the previous run could clear under the next one. A waking delivery
+   * marks the run active synchronously, so no hand-off gap exists. Calling it after the ctx went
+   * stale throws (see mainBusy). Optional: a state object from an older load lacks it.
+   */
+  isIdle?: () => boolean;
 };
+/**
+ * Is main's run active? Unknown (no or a stale ctx) counts as busy: the notice then waits for the
+ * next agent_settled, which recaptures a live ctx and flushes — waiting is safe, appending
+ * mid-run is not (Margin of Safety).
+ */
+function mainBusy(): boolean {
+  try {
+    const isIdle = mainState().isIdle;
+    return isIdle ? !isIdle() : true;
+  } catch {
+    return true;
+  }
+}
 function mainState(): MainLiveState {
   const g = globalThis as Record<string, unknown>;
   let s = g[MAIN_STATE_KEY] as MainLiveState | undefined;
@@ -237,7 +257,7 @@ function mainState(): MainLiveState {
  * singleton — while this module is evaluated again on every /reload with fresh closures. Exactly
  * one load may own them at a time: each load disposes the previous owner's hooks before
  * installing its own, otherwise every reload adds another subscriber and a single engine event
- * would be handled once per load (duplicate parent notifications, duplicate escalations) through
+ * would be handled once per load through
  * closures whose `ui` is already dead.
  *
  * The swap on load is what guarantees this; the shutdown-time disposal below is a courtesy for
@@ -285,11 +305,15 @@ export default function subagents(pi: ExtensionAPI) {
   // loop: with "followUp" the replies queue while main streams and main never observes
   // them mid-loop (polls forever). "steer" injects them before main's next LLM call so it
   // sees the replies. triggerTurn preserves immediate delivery while main is idle.
-  setMainSink((message) =>
-    pi.sendMessage(toCustomAgentMessage(message), {
-      triggerTurn: true,
-      deliverAs: "steer",
-    }),
+  // silent: triggerTurn false appends without a turn, which the engine only does while main is
+  // not busy (mid-run Pi would push it into the running turn's history).
+  setMainSink((message, silent) =>
+    pi.sendMessage(
+      toCustomAgentMessage(message),
+      silent
+        ? { triggerTurn: false }
+        : { triggerTurn: true, deliverAs: "steer" },
+    ),
   );
 
   // Process-global model services built once (same creds as the foreground).
@@ -352,7 +376,10 @@ export default function subagents(pi: ExtensionAPI) {
   // turn/reload; calling a cached ctx crashes pi with "stale ctx").
   const captureMainContext = (c: {
     getContextUsage(): MainLiveState["usage"];
+    isIdle(): boolean;
   }) => {
+    // The function, not the ctx: it is only ever called guarded (mainBusy).
+    mainState().isIdle = () => c.isIdle();
     try {
       mainState().usage = c.getContextUsage();
     } catch {
@@ -448,39 +475,8 @@ export default function subagents(pi: ExtensionAPI) {
     }
   };
 
-  // Tell a parent that its child broke. The child owes its parent a message that a failed turn
-  // will never send, so without this the parent waits forever (see error-notification.ts for the
-  // decision, including who is deliberately not told).
-  // Delivery is ordinary peer traffic: an idle parent is woken, a busy one picks it up at its next
-  // turn boundary, a paused one keeps it in its inbox. The sender is "scheduler", the same engine
-  // voice the scheduler uses, so the notification cannot be read as the child speaking.
-  const notifyParentOfError = (e: { name: string; reason: string }): void => {
-    const notification = errorNotification(
-      e,
-      engine.getSpawnTree(),
-      new Set(engine.list().map((a) => a.name)),
-    );
-    if (!notification) return;
-    if (notification.to === "main") {
-      try {
-        deliverToMain(createRoutedAgentMessage("scheduler", notification.content));
-      } catch {
-        /* no live foreground session — the error stays visible in the panel feed */
-      }
-      return;
-    }
-    // Fire-and-forget, and never as an unhandled rejection: this runs inside an engine event
-    // callback, where one would take the whole pi process down.
-    void engine.route("scheduler", notification.to, notification.content).catch(() => {
-      /* the failed delivery reports itself as that agent's own engine error */
-    });
-  };
-
   // Update the status on every engine event.
-  const unsubscribeEngine = engine.subscribe((e) => {
-    if (e.type === "error") notifyParentOfError(e);
-    updateStatus();
-  });
+  const unsubscribeEngine = engine.subscribe(() => updateStatus());
   // The roster widget hands pi fully composed lines truncated to the width they were built at,
   // and pi re-draws those STORED lines after a resize — a line from a wider terminal then trips
   // its "Rendered line exceeds terminal width" check. Rebuilding the widget here keeps the stored
@@ -600,6 +596,15 @@ export default function subagents(pi: ExtensionAPI) {
         }),
       // Same steer semantics as peer traffic: a busy agent picks the human's text up at its next
       // turn boundary rather than only after it fully stops.
+      // triggerTurn false on an idle session appends without a turn (pi-silent-append.test.ts);
+      // the engine only calls this while the session is not busy.
+      appendAgentMessage: (message) =>
+        session.sendCustomMessage(toCustomAgentMessage(message), {
+          triggerTurn: false,
+        }),
+      get isStreaming() {
+        return session.isStreaming;
+      },
       sendUserMessage: (text) =>
         session.sendUserMessage(text, { deliverAs: "steer" }),
       abort: () => session.abort(),
@@ -752,6 +757,13 @@ export default function subagents(pi: ExtensionAPI) {
     captureForegroundThinkingLevel(event.level);
   });
 
+  // main's run ended: append the lifecycle notices that waited for it (Engine.notify). If another
+  // run already started meanwhile, mainBusy() still reads true and they keep waiting for its end.
+  pi.on("agent_settled", (_event, ctx) => {
+    captureMainContext(ctx);
+    engine.flushNotices("main");
+  });
+
   // Capture the foreground streaming flag for the status display + the model.
   pi.on("agent_start", (_event, ctx) => {
     ui = ctx.ui;
@@ -824,6 +836,8 @@ export default function subagents(pi: ExtensionAPI) {
           deliverToMain(message);
         },
         abort: async () => {}, // do not abort the human's turn
+        append: (message) => deliverToMain(message, true),
+        busy: mainBusy,
       };
       engine.addAgent({
         name: "main",
@@ -845,6 +859,9 @@ export default function subagents(pi: ExtensionAPI) {
       });
     }
     await restoreSwarm();
+    // A live ctx is captured again only now: notices queued while it was stale (after a reload)
+    // would otherwise wait for main's next run to settle.
+    engine.flushNotices("main");
     updateStatus();
   });
 

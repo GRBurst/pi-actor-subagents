@@ -16,6 +16,7 @@ import type { AgentHandle, AgentRecord, AgentTuning, AgentView, ModelChange } fr
 import { type AgentActivity, type AgentStatus, agentStatus, type StopReason } from "./agent-status.ts";
 import type { CheckResult, ControlResult, EngineResumeResult, TargetOutcome } from "./control-result.ts";
 import type { Caps } from "./settings.ts";
+import { type LifecycleChange, lifecycleNotices } from "./lifecycle-notice.ts";
 import { childrenOf, pausedBy, subtreePostOrder } from "./spawn-tree.ts";
 import type { ThinkingLevel } from "./thinking-level.ts";
 
@@ -67,6 +68,9 @@ export type DeliverUserResult = { outcome: "delivered" } | { outcome: "refused";
 // indistinguishable from them.
 const RESERVED = new Set(["main", "scheduler", ...NON_AGENT_ACTORS]);
 const NAME_RE = /^[a-zA-Z0-9_-]+$/;
+
+/** A record as a lifecycle-notice target: itself and the parent to tell. */
+const asTarget = (rec: AgentRecord) => ({ name: rec.name, parent: rec.spawnedBy });
 
 /** Feed preview of a message body: one short excerpt, never the whole payload. */
 const previewOf = (content: string): string => (content.length > 60 ? `${content.slice(0, 60)}...` : content);
@@ -202,6 +206,8 @@ export class Engine {
 		// nobody to re-trigger — so they join the paused inbox, ahead of anything buffered later.
 		if (this.isStopped(rec)) rec.pausedInbox = [...buffered, ...(rec.pausedInbox ?? [])];
 		else for (const t of buffered) void opts.handle.deliver(t);
+		// A reservation cannot append, so notices for it waited here.
+		this.flushNotices(name);
 	}
 
 	/** Release a reservation (session creation failed). */
@@ -236,6 +242,7 @@ export class Engine {
 	async kill(by: string, names: string[]): Promise<ControlResult> {
 		const results: TargetOutcome[] = [];
 		const affected: string[] = [];
+		const killed: { name: string; parent: string }[] = [];
 		for (const target of names) {
 			// Already taken down with an ancestor named earlier in this call: done, not unknown.
 			if (affected.includes(target)) {
@@ -248,8 +255,12 @@ export class Engine {
 				continue;
 			}
 			results.push({ target, ok: true });
+			// The parent is read before the record goes away.
+			killed.push({ name: target, parent: this.agents.get(target)?.spawnedBy ?? "main" });
 			affected.push(...(await this.killSubtree(by, target)));
 		}
+		// Announced after the whole operation, so a parent taken down by it is no longer live.
+		this.announce({ kind: "killed", by, targets: killed });
 		return { results, affected };
 	}
 
@@ -447,11 +458,12 @@ export class Engine {
 	pause(by: string, names?: string[]): ControlResult {
 		const { results, recs } = this.controlTargets(by, names);
 		const before = this.pausedSet();
-		const flagged: string[] = [];
+		const flagged: AgentRecord[] = [];
 		for (const rec of recs) {
+			// Checked per step, so a name given twice is flagged once.
 			if (rec.paused !== undefined) continue;
 			rec.paused = by;
-			flagged.push(rec.name);
+			flagged.push(rec);
 		}
 		if (flagged.length === 0) return { results, affected: [] };
 		const newlyPaused = this.background().filter((rec) => !before.has(rec.name) && this.isAgentPaused(rec));
@@ -464,7 +476,8 @@ export class Engine {
 				(error) => this.reportError(rec.name, `abort failed: ${error instanceof Error ? error.message : String(error)}`),
 			);
 		}
-		this.emit({ type: "pause", names: flagged, by, ts: Date.now() });
+		this.emit({ type: "pause", names: flagged.map((rec) => rec.name), by, ts: Date.now() });
+		this.announce({ kind: "paused", by, targets: flagged.map(asTarget) });
 		return { results, affected: newlyPaused.map((rec) => rec.name) };
 	}
 
@@ -490,7 +503,7 @@ export class Engine {
 	async resume(by: string, names?: string[]): Promise<EngineResumeResult> {
 		const { results, recs } = this.controlTargets(by, names);
 		const before = this.pausedSet();
-		const cleared = recs.filter((rec) => rec.paused !== undefined);
+		const cleared = [...new Set(recs)].filter((rec) => rec.paused !== undefined); // a name given twice clears once
 		for (const rec of cleared) rec.paused = undefined;
 		for (const result of results) {
 			const rec = this.agents.get(result.target);
@@ -501,6 +514,7 @@ export class Engine {
 
 		const released = this.background().filter((rec) => before.has(rec.name) && !this.isAgentPaused(rec));
 		this.emit({ type: "resume", names: cleared.map((rec) => rec.name), by, ts: Date.now() });
+		this.announce({ kind: "resumed", by, targets: cleared.map(asTarget) });
 
 		// The released agents that still run now: not killed (or respawned) and not paused again.
 		const running = () => released.filter((rec) => this.agents.get(rec.name) === rec && !this.isAgentPaused(rec));
@@ -646,7 +660,7 @@ export class Engine {
 	 * run the SDK settled after exhausting retries — so consumers see the failure once per failed run
 	 * regardless of which path produced it. `beginTurn` clears stopReason, so the next failure is a
 	 * fresh transition; a repeated error report within the same errored state stays silent instead
-	 * of waking the parent again for the same failure.
+	 * of notifying the parent again for the same failure.
 	 */
 	setStopReason(name: string, reason: StopReason | undefined, detail?: string): void {
 		const rec = this.agents.get(name);
@@ -657,6 +671,40 @@ export class Engine {
 		if (!entersError) return;
 		rec.errorReason = detail ?? "the turn failed after the SDK's retries";
 		this.emit({ type: "error", name, reason: rec.errorReason, ts: Date.now() });
+		this.announce({ kind: "error", target: asTarget(rec), reason: rec.errorReason });
+	}
+
+	/** Tell the parents what a lifecycle change did to their children (lifecycle-notice.ts decides). */
+	private announce(change: LifecycleChange): void {
+		const notices = lifecycleNotices(change, new Set(this.agents.keys()), new Date());
+		for (const { to, content } of notices) this.notify(to, createRoutedAgentMessage("scheduler", content));
+	}
+
+	/**
+	 * Hand `name` a message it reads at its next turn, without starting one. A running (or handed)
+	 * turn must not receive it — Pi would append it mid-run, possibly between a tool call and its
+	 * result — so it waits in the agent's notice queue until flushNotices. A paused agent is idle
+	 * and takes it at once: notices are facts, not traffic, and do not belong in the paused inbox.
+	 */
+	notify(name: string, message: RoutedAgentMessage): void {
+		const rec = this.agents.get(name);
+		if (!rec) return;
+		(rec.notices ??= []).push(message);
+		this.flushNotices(name);
+	}
+
+	/** Append the queued notices once the agent is not busy; call it whenever a run or hand-off settles. */
+	flushNotices(name: string): void {
+		const rec = this.agents.get(name);
+		const notices = rec?.notices;
+		if (!rec?.handle.append || !notices || rec.handle.busy?.()) return;
+		rec.notices = undefined;
+		try {
+			rec.handle.append(mergeRoutedAgentMessages(notices));
+		} catch {
+			/* A notice is a copy of state the pull tools (list_subagents, subagent_history) also show,
+			   so losing one to a dead session costs nothing that cannot be looked up. */
+		}
 	}
 
 	/** A turn started: enter its opening phase and drop the previous turn's outcome. */

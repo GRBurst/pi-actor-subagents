@@ -2,7 +2,6 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRoutedAgentMessage, type RoutedAgentMessage } from "./agent-message.ts";
 import { Engine } from "./engine.ts";
-import { errorNotification } from "./error-notification.ts";
 import { createSpawner, type SessionLike, type ThinkingLevel } from "./spawner.ts";
 
 class FakeSession implements SessionLike {
@@ -45,6 +44,12 @@ class FakeSession implements SessionLike {
 	async sendUserMessage(text: string) {
 		this.userMessages.push(text);
 	}
+	/** Silently appended notices, in order. */
+	appended: RoutedAgentMessage[] = [];
+	isStreaming = false;
+	appendAgentMessage(message: RoutedAgentMessage) {
+		this.appended.push(message);
+	}
 	async abort() {
 		this.aborted++;
 		this.lifecycle.push("abort");
@@ -67,12 +72,17 @@ class FakeSession implements SessionLike {
 	}
 }
 
-function withMain(engine: Engine, inbox: RoutedAgentMessage[]) {
+function withMain(engine: Engine, inbox: RoutedAgentMessage[], appended: RoutedAgentMessage[] = []) {
 	engine.addAgent({
 		name: "main",
 		model: "test/m",
 		thinkingLevel: "xhigh" as const,
-		handle: { deliver: async (t) => void inbox.push(t), abort: async () => {} },
+		handle: {
+			deliver: async (t) => void inbox.push(t),
+			abort: async () => {},
+			append: (m) => void appended.push(m),
+			busy: () => false,
+		},
 		spawnedBy: "main",
 		depth: 0,
 		createdAt: 0,
@@ -278,11 +288,12 @@ test("view.getStreamingMessage tracks the in-progress assistant message, cleared
 	assert.equal(view?.getStreamingMessage?.(), undefined); // finalized into session.messages
 });
 
-test("retries produce one parent notification per settled logical run", async () => {
+test("retries produce one silent parent notice per settled logical run", async () => {
 	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
+	const woken: RoutedAgentMessage[] = [];
 	const parentInbox: RoutedAgentMessage[] = [];
 	const parentMessage = (index: number): RoutedAgentMessage | undefined => parentInbox[index];
-	withMain(engine, parentInbox);
+	withMain(engine, woken, parentInbox);
 	const session = new FakeSession();
 	const spawner = createSpawner({
 		engine,
@@ -291,11 +302,6 @@ test("retries produce one parent notification per settled logical run", async ()
 	});
 	await spawner.spawnAgent({ name: "worker", systemPrompt: "work" }, "main");
 	const errors = () => engine.events.filter((event) => event.type === "error");
-	engine.subscribe((event) => {
-		if (event.type !== "error") return;
-		const notification = errorNotification(event, engine.getSpawnTree(), engine.liveNames());
-		if (notification) void engine.route("scheduler", notification.to, notification.content);
-	});
 
 	// One logical run can contain several provider attempts. None is terminal until the session
 	// settles, and distinct details prove that the final assistant error reaches the parent.
@@ -324,6 +330,82 @@ test("retries produce one parent notification per settled logical run", async ()
 	assert.equal(errors()[1]?.reason, "provider unavailable");
 	assert.equal(parentInbox.length, 2);
 	assert.match(parentMessage(1)?.parts[0]?.content ?? "", /provider unavailable/);
+	assert.deepEqual(woken, [], "an error notice never starts a turn");
+});
+
+test("a notice for a busy parent waits for its run to settle, then is appended without a turn", async () => {
+	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
+	withMain(engine, []);
+	const sessions = new Map<string, FakeSession>();
+	const spawner = createSpawner({
+		engine,
+		resolveModel: () => ({ provider: "t", id: "m", model: {} }),
+		createSession: async (spec) => {
+			const session = new FakeSession();
+			sessions.set(spec.name, session);
+			return { session };
+		},
+	});
+	await spawner.spawnAgent({ name: "lead", systemPrompt: "r" }, "main");
+	await spawner.spawnAgent({ name: "worker", systemPrompt: "r" }, "lead");
+	const lead = sessions.get("lead")!;
+
+	lead.isStreaming = true;
+	engine.pause("user", ["worker"]);
+	assert.equal(lead.appended.length, 0, "never into a running turn");
+	lead.isStreaming = false;
+	lead.emit("agent_settled");
+	assert.equal(lead.appended.length, 1);
+	assert.equal(lead.appended[0]?.parts[0]?.from, "scheduler");
+	assert.match(lead.appended[0]?.parts[0]?.content ?? "", /your subagent worker was paused by user\.$/);
+	assert.deepEqual(lead.delivered, [], "a notice is not traffic: no turn was started");
+	assert.equal(engine.statusOf("lead")?.kind, "idle", "the appended message_start is not work");
+});
+
+test("a turn handed to a child counts as busy until the hand-off settles, even before the run starts", async () => {
+	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
+	withMain(engine, []);
+	let finishRun: () => void = () => {};
+	let failRun: (e: Error) => void = () => {};
+	class SlowSession extends FakeSession {
+		async sendAgentMessage(message: RoutedAgentMessage) {
+			this.delivered.push(message);
+			// Pi resolves a prompted delivery only once its run settles.
+			await new Promise<void>((resolve, reject) => {
+				finishRun = resolve;
+				failRun = reject;
+			});
+		}
+	}
+	const sessions = new Map<string, FakeSession>();
+	const spawner = createSpawner({
+		engine,
+		resolveModel: () => ({ provider: "t", id: "m", model: {} }),
+		createSession: async (spec) => {
+			const session = spec.name === "lead" ? new SlowSession() : new FakeSession();
+			sessions.set(spec.name, session);
+			return { session };
+		},
+	});
+	await spawner.spawnAgent({ name: "lead", systemPrompt: "r" }, "main");
+	await spawner.spawnAgent({ name: "worker", systemPrompt: "r" }, "lead");
+	const lead = sessions.get("lead")!;
+
+	await engine.route("main", "lead", "go"); // handed over; the session has not reported a run yet
+	engine.pause("main", ["worker"]);
+	assert.equal(lead.appended.length, 0);
+	finishRun();
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(lead.appended.length, 1);
+
+	// A failed hand-off releases the queue too.
+	await engine.route("main", "lead", "again");
+	await engine.resume("main", ["worker"]);
+	assert.equal(lead.appended.length, 1);
+	failRun(new Error("boom"));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(lead.appended.length, 2);
+	assert.match(lead.appended[1]?.parts[0]?.content ?? "", /worker was resumed by main/);
 });
 
 test("view.getToolDefinition reaches the session's tool registry (what makes the panel render calls)", async () => {

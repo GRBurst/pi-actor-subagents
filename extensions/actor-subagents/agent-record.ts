@@ -17,6 +17,18 @@ export interface AgentHandle {
 	deliverUser?(text: string): Promise<void>;
 	/** Aborts this agent's running turn. */
 	abort(): Promise<void>;
+	/**
+	 * Appends a message to the transcript WITHOUT starting a turn — the silent channel for
+	 * lifecycle notices. Only safe while not busy(): appended into a running turn it could land
+	 * between a tool call and its result. Absent while the agent is still a reservation.
+	 */
+	append?(message: RoutedAgentMessage): void;
+	/**
+	 * Is a turn running or handed over and not yet settled? Must be true from the moment a turn
+	 * is handed to the agent, not only once it starts, and must fall back to false on its own when
+	 * the hand-off ends — so a queued notice can neither slip into a starting turn nor get stuck.
+	 */
+	busy?(): boolean;
 }
 
 /** Live view of an agent for the panel. Optional, purely additive. */
@@ -121,4 +133,6 @@ export interface AgentRecord {
 	reconfigure?: (change: { model?: ModelChange; thinkingLevel?: ThinkingLevel }) => Promise<AgentTuning>;
 	/** Messages buffered while this agent is paused. Released on resume. */
 	pausedInbox?: RoutedAgentMessage[];
+	/** Lifecycle notices that arrived while the agent was busy; appended silently once it is not. */
+	notices?: RoutedAgentMessage[];
 }
