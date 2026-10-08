@@ -150,7 +150,9 @@ export function formatModel(model: string | undefined, thinkingLevel: ThinkingLe
 
 const NAME_CAP = 24; // names beyond this are middle-elided (keeps the distinguishing tail)
 export const CUSTOM_STATUS_MAX = 32; // hard cap on the agent-set status (also stated in the set_status prompt)
-const SYS_STATUS_CAP = 18;
+// Wide enough for "paused (held by <name>, paused by user)" with a short name; longer causes and
+// error reasons are cut (list_subagents and subagent_history show them in full).
+const SYS_STATUS_CAP = 36;
 
 /** Truncate to width with a trailing ellipsis (plain-text width). */
 function fitEnd(s: string, w: number): string {
@@ -278,6 +280,8 @@ const trunc = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)
  */
 export function formatHistory(opts: {
 	name: string;
+	/** The agent's current status label (formatStatus), so the reader sees why it is quiet. */
+	status: string;
 	systemPrompt?: string;
 	messages: HistMessage[];
 	offset?: number;
@@ -289,7 +293,7 @@ export function formatHistory(opts: {
 	const raw = opts.offset ?? 0;
 	const start = raw >= 0 ? Math.min(raw, total) : Math.max(0, total + raw);
 	const end = Math.min(start + limit, total);
-	const lines: string[] = [`agent ${name} · ${total} messages · showing [${start}, ${end})`];
+	const lines: string[] = [`agent ${name} · ${total} messages · showing [${start}, ${end})`, `status: ${opts.status}`];
 	if (start === 0 && systemPrompt) lines.push("── system ──", trunc(systemPrompt, 800));
 	for (let i = start; i < end; i++) {
 		const m = messages[i];

@@ -165,10 +165,10 @@ test("formatMulticastResult distinguishes delivered, paused-buffered, and failed
 				outcome: "delivered",
 				reaction: { observed: "moving", status: { kind: "working", phase: "tool", tool: "bash" } },
 			},
-			{ target: "b", outcome: "buffered" },
+			{ target: "b", outcome: "buffered", status: { kind: "paused", by: "user" } },
 			{ target: "x", outcome: "failed", reason: "unknown agent 'x'" },
 		]),
-		"sent to a (tool:bash) · buffered for b (paused) · failed: x: unknown agent 'x'",
+		"sent to a (tool:bash) · buffered for b (paused by user) · failed: x: unknown agent 'x'",
 	);
 	assert.equal(formatMulticastResult([]), "error: no targets");
 });
@@ -179,8 +179,8 @@ test("formatMulticastResult reports each receiver state a delivered message can 
 	// Only an elapsed window with a still-idle agent earns the "no reaction" annotation: that gap
 	// is the signal the sender needs, and claiming it anywhere else would be a false alarm.
 	assert.equal(sentTo(unmoved({ kind: "idle" })), "sent to a (idle (no reaction))");
-	assert.equal(sentTo(unmoved({ kind: "idle", outcome: "error" })), "sent to a (error)");
-	assert.equal(sentTo(unmoved({ kind: "paused" })), "sent to a (paused)"); // paused mid-window
+	assert.equal(sentTo(unmoved({ kind: "idle", outcome: "error", reason: "boom" })), "sent to a (error: boom)");
+	assert.equal(sentTo(unmoved({ kind: "paused", by: "lead" })), "sent to a (paused by lead)"); // paused mid-window
 	assert.equal(sentTo({ observed: "unwatched", status: { kind: "idle" } }), "sent to a (idle)");
 	assert.equal(sentTo({ observed: "moving", status: { kind: "idle", outcome: "truncated" } }), "sent to a (truncated)");
 	assert.equal(sentTo({ observed: "moving", status: { kind: "spawning" } }), "sent to a (spawning)");

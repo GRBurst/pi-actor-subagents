@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import type { AgentRecord } from "./agent-record.ts";
 import { childrenOf, isStrictDescendant, nearest, pausedBy, subtreePostOrder } from "./spawn-tree.ts";
 
-const rec = (name: string, spawnedBy: string, paused?: boolean): AgentRecord => ({
+const rec = (name: string, spawnedBy: string): AgentRecord => ({
 	name,
 	model: "test/m",
 	handle: { deliver: async () => {}, abort: async () => {} },
@@ -12,7 +12,6 @@ const rec = (name: string, spawnedBy: string, paused?: boolean): AgentRecord => 
 	createdAt: 0,
 	turns: 0,
 	lastActivity: 0,
-	...(paused ? { paused } : {}),
 });
 
 /** main -> a -> b -> c, main -> d */
@@ -20,7 +19,7 @@ const tree = (flags: Record<string, boolean> = {}) =>
 	new Map(
 		[rec("main", "main"), rec("a", "main"), rec("b", "a"), rec("c", "b"), rec("d", "main")].map((r) => [
 			r.name,
-			{ ...r, ...(flags[r.name] ? { paused: true } : {}) },
+			{ ...r, ...(flags[r.name] ? { paused: "main" } : {}) },
 		]),
 	);
 

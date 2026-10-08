@@ -112,7 +112,7 @@ export function normalizeTargets(to: string[]): string[] {
  */
 export type MulticastRouteOutcome =
 	| { target: string; outcome: "delivered"; reaction: Reaction }
-	| { target: string; outcome: "buffered" }
+	| { target: string; outcome: "buffered"; status: AgentStatus }
 	| { target: string; outcome: "failed"; reason: string };
 
 /**
@@ -139,7 +139,7 @@ export function formatMulticastResult(results: MulticastRouteOutcome[]): string 
 	const failed: string[] = [];
 	for (const result of results) {
 		if (result.outcome === "delivered") delivered.push(`${result.target} (${formatReceiverStatus(result.reaction)})`);
-		else if (result.outcome === "buffered") buffered.push(`${result.target} (paused)`);
+		else if (result.outcome === "buffered") buffered.push(`${result.target} (${formatStatus(result.status)})`);
 		else failed.push(`${result.target}: ${result.reason}`);
 	}
 	const parts: string[] = [];

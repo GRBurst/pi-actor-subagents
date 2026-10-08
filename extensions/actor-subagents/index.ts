@@ -29,6 +29,7 @@ import { agentSystemPrompt } from "./agent-system-prompt.ts";
 import { makeAgentTools } from "./agent-tools.ts";
 import type { AgentHandle } from "./agent-record.ts";
 import type { EngineResumeResult } from "./control-result.ts";
+import { authorityOf } from "./authorize.ts";
 import { Engine } from "./engine.ts";
 import { errorNotification } from "./error-notification.ts";
 import {
@@ -109,12 +110,14 @@ function readSettings(): Settings {
 // It carries the current local date and time because a resumed transcript can be days old:
 // the tool-result stamps in it are date-free, so yesterday's [finished 23:10:04] reads like
 // today's. This is the agent's only anchor at the point where its transcript jumps in time.
-const RESUME_NUDGE = (now: Date) => {
+// It names the actor that resumed it, since the sender is the authority agent ('main' for the
+// human and restore), not necessarily who acted.
+const RESUME_NUDGE = (now: Date, by: string) => {
   const pad = (n: number) => String(n).padStart(2, "0");
   const stamp =
     `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ` +
     `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  return `[resumed ${stamp}] Continue your interrupted work. A missing tool result means the action outcome is UNKNOWN, not that it failed or had no effect. Inspect actual external state before retrying side-effecting actions.`;
+  return `[resumed ${stamp} by ${by}] Continue your interrupted work. A missing tool result means the action outcome is UNKNOWN, not that it failed or had no effect. Inspect actual external state before retrying side-effecting actions.`;
 };
 // The Engine is a globalThis singleton so it survives /reload. Consequence: a persisted
 // instance keeps the SHAPE (methods) of the code that built it — adding/changing Engine
@@ -161,7 +164,11 @@ const RESUME_NUDGE = (now: Date) => {
 //      records. pause/resume/kill/retune take the acting agent first; pause/resume/kill take a
 //      names list and return per-target outcomes; pause aborts the stopped turns itself and
 //      resume is async, waiting for those aborts. A v25 instance would keep a swarm-wide pause this code can no longer lift.
-const ENGINE_KEY = "__subagentsEngine_v26";
+// v27: provenance and lifecycle notices — AgentRecord.paused holds the actor (a string), events
+//      carry `by`, "user"/"restore" act with main's authority, killAll(by), errorReason, statuses
+//      carry their cause, and the engine queues silent notices (notify/settled; handles gain
+//      append/busy). A v26 instance would treat a string flag as foreign and lack these methods.
+const ENGINE_KEY = "__subagentsEngine_v27";
 
 function getEngine(): Engine {
   const g = globalThis as Record<string, unknown>;
@@ -718,17 +725,17 @@ export default function subagents(pi: ExtensionAPI) {
     }
     // Present the restored swarm as paused: pausing main's direct children holds every restored
     // agent (main adopted the orphans), and one resume_subagents()/`/subagents-resume` reactivates it.
-    engine.pause("main");
+    engine.pause("restore");
   };
 
   // Shared by /subagents-resume and the resume_subagents tool, acting as `by`: the engine clears
   // the targets' own pause and releases the buffered messages of every agent that runs again;
-  // the interrupted ones among those are re-triggered in `by`'s name, so their reply goes to the
-  // agent that resumed them.
+  // the interrupted ones among those are re-triggered in the name of `by`'s authority agent
+  // ('main' for the human), so their reply goes to an agent that can read it.
   const resumeAgents = async (by: string, names?: string[]): Promise<EngineResumeResult> => {
     const result = await engine.resume(by, names);
-    const nudge = RESUME_NUDGE(new Date());
-    for (const name of result.interrupted) void engine.route(by, name, nudge);
+    const nudge = RESUME_NUDGE(new Date(), by);
+    for (const name of result.interrupted) void engine.route(authorityOf(by), name, nudge);
     updateStatus();
     return result;
   };
@@ -886,7 +893,7 @@ export default function subagents(pi: ExtensionAPI) {
               setToolsExpanded: (v) => ctx.ui.setToolsExpanded?.(v),
               listModels,
               setAgentModel: (spec) =>
-                setAgentModel("main", spec as Parameters<typeof setAgentModel>[1]),
+                setAgentModel("user", spec as Parameters<typeof setAgentModel>[1]),
             },
             tui,
             theme,
@@ -926,13 +933,14 @@ export default function subagents(pi: ExtensionAPI) {
 
   // Every swarm control command shares the /subagents- prefix, so typing it lists the whole
   // control surface and none collides with a pi built-in (/resume continues a chat session).
-  // The human's commands act as 'main', the root that owns every agent.
+  // The human's commands act as "user", which carries main's authority (authorize.ts) and is
+  // recorded as the actor, so status and notices can tell the human's actions from main's.
   pi.registerCommand("subagents-pause", {
     description:
       "Pause agents by name (empty = all of main's children; subtrees follow): their turns stop " +
       "and new messages buffer until resumed.",
     handler: async (args, ctx) => {
-      ctx.ui.notify(formatControlResult("pause", engine.pause("main", parseNames(args))), "warning");
+      ctx.ui.notify(formatControlResult("pause", engine.pause("user", parseNames(args))), "warning");
       updateStatus();
     },
   });
@@ -942,7 +950,7 @@ export default function subagents(pi: ExtensionAPI) {
       "Resume agents by name (empty = all of main's children; subtrees follow): release buffered " +
       "messages and retrigger interrupted work.",
     handler: async (args, ctx) => {
-      ctx.ui.notify(formatResumeResult(await resumeAgents("main", parseNames(args))), "info");
+      ctx.ui.notify(formatResumeResult(await resumeAgents("user", parseNames(args))), "info");
     },
   });
 
@@ -950,7 +958,7 @@ export default function subagents(pi: ExtensionAPI) {
     description: "Terminate agents by name, each with its subtree (empty = all except 'main').",
     handler: async (args, ctx) => {
       const names = parseNames(args);
-      const result = names.length ? await engine.kill("main", names) : await engine.killAll();
+      const result = names.length ? await engine.kill("user", names) : await engine.killAll("user");
       persistRoster();
       ctx.ui.notify(formatControlResult("kill", result), "info");
       updateStatus();

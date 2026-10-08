@@ -11,7 +11,7 @@ import {
 } from "./agent-message.ts";
 import type { AgentEvent } from "./agent-event.ts";
 import { AbortTracker } from "./abort-tracker.ts";
-import { authorize } from "./authorize.ts";
+import { authorityOf, authorize, NON_AGENT_ACTORS } from "./authorize.ts";
 import type { AgentHandle, AgentRecord, AgentTuning, AgentView, ModelChange } from "./agent-record.ts";
 import { type AgentActivity, type AgentStatus, agentStatus, type StopReason } from "./agent-status.ts";
 import type { CheckResult, ControlResult, EngineResumeResult, TargetOutcome } from "./control-result.ts";
@@ -28,7 +28,8 @@ export type RetuneResult = { ok: true; tuning: AgentTuning } | { ok: false; reas
  */
 export type RouteResult =
 	| { outcome: "delivered" }
-	| { outcome: "buffered" }
+	// `status` says why it was parked (normally the pause and who set it).
+	| { outcome: "buffered"; status: AgentStatus }
 	| { outcome: "failed"; reason: string };
 
 /**
@@ -61,7 +62,10 @@ export type Reaction =
  */
 export type DeliverUserResult = { outcome: "delivered" } | { outcome: "refused"; reason: string };
 
-const RESERVED = new Set(["main"]);
+// 'main' is the foreground chat, the non-agent actors appear as provenance (`by`), and
+// "scheduler" is the engine's own sender voice: an agent by any of these names would be
+// indistinguishable from them.
+const RESERVED = new Set(["main", "scheduler", ...NON_AGENT_ACTORS]);
 const NAME_RE = /^[a-zA-Z0-9_-]+$/;
 
 /** Feed preview of a message body: one short excerpt, never the whole payload. */
@@ -244,20 +248,20 @@ export class Engine {
 				continue;
 			}
 			results.push({ target, ok: true });
-			affected.push(...(await this.killSubtree(target)));
+			affected.push(...(await this.killSubtree(by, target)));
 		}
 		return { results, affected };
 	}
 
 	/** Kill `name` and its subtree (post-order), returning every name taken down. */
-	private async killSubtree(name: string): Promise<string[]> {
+	private async killSubtree(by: string, name: string): Promise<string[]> {
 		const subtree = subtreePostOrder(this.agents, name);
 
 		// Inversion: remove first so no new message can enter a runtime while it closes.
 		for (const r of subtree) this.agents.delete(r.name);
 		for (const r of subtree) {
 			await this.closeRecord(r);
-			this.emit({ type: "kill", name: r.name, ts: Date.now() });
+			this.emit({ type: "kill", name: r.name, by, ts: Date.now() });
 		}
 		return subtree.map((r) => r.name);
 	}
@@ -291,9 +295,9 @@ export class Engine {
 		}
 	}
 
-	/** Kill all agents except 'main': main's children, each with its subtree. */
-	killAll(): Promise<ControlResult> {
-		return this.kill("main", childrenOf(this.agents, "main").map((rec) => rec.name));
+	/** `by` (main's authority) kills all agents except 'main': main's children, each with its subtree. */
+	killAll(by: string): Promise<ControlResult> {
+		return this.kill(by, childrenOf(this.agents, "main").map((rec) => rec.name));
 	}
 
 	/**
@@ -317,7 +321,8 @@ export class Engine {
 	 * owner is left alone. Each name gets its outcome; only the authorized ones are returned to act on.
 	 */
 	private controlTargets(by: string, names?: string[]): { results: TargetOutcome[]; recs: AgentRecord[] } {
-		const targets = names && names.length > 0 ? names : childrenOf(this.agents, by).map((rec) => rec.name);
+		const targets =
+			names && names.length > 0 ? names : childrenOf(this.agents, authorityOf(by)).map((rec) => rec.name);
 		const results: TargetOutcome[] = [];
 		const recs: AgentRecord[] = [];
 		for (const target of targets) {
@@ -351,9 +356,12 @@ export class Engine {
 		return this.isAgentPaused(rec) || this.aborts.pending((name) => name === rec.name).length > 0;
 	}
 
-	/** The agent's status with its effective pause state folded in; the only status to display. */
+	/** The agent's status with its effective pause and its cause folded in; the only status to display. */
 	status(rec: AgentRecord): AgentStatus {
-		return agentStatus({ ...rec, paused: this.isAgentPaused(rec) });
+		const holder = pausedBy(this.agents, rec);
+		const by = holder === undefined ? undefined : this.agents.get(holder)?.paused;
+		const pause = by === undefined ? undefined : { by, ...(holder !== rec.name ? { holder } : {}) };
+		return agentStatus({ ...rec, pause });
 	}
 
 	/** The agent's status as the engine sees it, with its pause state folded in. */
@@ -441,8 +449,8 @@ export class Engine {
 		const before = this.pausedSet();
 		const flagged: string[] = [];
 		for (const rec of recs) {
-			if (rec.paused) continue;
-			rec.paused = true;
+			if (rec.paused !== undefined) continue;
+			rec.paused = by;
 			flagged.push(rec.name);
 		}
 		if (flagged.length === 0) return { results, affected: [] };
@@ -456,7 +464,7 @@ export class Engine {
 				(error) => this.reportError(rec.name, `abort failed: ${error instanceof Error ? error.message : String(error)}`),
 			);
 		}
-		this.emit({ type: "pause", names: flagged, ts: Date.now() });
+		this.emit({ type: "pause", names: flagged, by, ts: Date.now() });
 		return { results, affected: newlyPaused.map((rec) => rec.name) };
 	}
 
@@ -482,8 +490,8 @@ export class Engine {
 	async resume(by: string, names?: string[]): Promise<EngineResumeResult> {
 		const { results, recs } = this.controlTargets(by, names);
 		const before = this.pausedSet();
-		const cleared = recs.filter((rec) => rec.paused === true);
-		for (const rec of cleared) rec.paused = false;
+		const cleared = recs.filter((rec) => rec.paused !== undefined);
+		for (const rec of cleared) rec.paused = undefined;
 		for (const result of results) {
 			const rec = this.agents.get(result.target);
 			const holder = result.ok && rec ? pausedBy(this.agents, rec) : undefined;
@@ -492,7 +500,7 @@ export class Engine {
 		if (cleared.length === 0) return { results, affected: [], interrupted: [], bufferedMessages: 0 };
 
 		const released = this.background().filter((rec) => before.has(rec.name) && !this.isAgentPaused(rec));
-		this.emit({ type: "resume", names: cleared.map((rec) => rec.name), ts: Date.now() });
+		this.emit({ type: "resume", names: cleared.map((rec) => rec.name), by, ts: Date.now() });
 
 		// The released agents that still run now: not killed (or respawned) and not paused again.
 		const running = () => released.filter((rec) => this.agents.get(rec.name) === rec && !this.isAgentPaused(rec));
@@ -539,7 +547,7 @@ export class Engine {
 		target.lastActivity = Date.now();
 		this.countEdge(from, to);
 		this.emit({ type: "route", from, to, preview: previewOf(content), buffered: paused, ts: Date.now() });
-		return paused ? { outcome: "buffered" } : { outcome: "delivered" };
+		return paused ? { outcome: "buffered", status: this.status(target) } : { outcome: "delivered" };
 	}
 
 	/**
@@ -645,8 +653,10 @@ export class Engine {
 		if (!rec) return;
 		const entersError = reason === "error" && rec.stopReason !== "error";
 		rec.stopReason = reason;
-		if (entersError)
-			this.emit({ type: "error", name, reason: detail ?? "the turn failed after the SDK's retries", ts: Date.now() });
+		if (reason !== "error") rec.errorReason = undefined;
+		if (!entersError) return;
+		rec.errorReason = detail ?? "the turn failed after the SDK's retries";
+		this.emit({ type: "error", name, reason: rec.errorReason, ts: Date.now() });
 	}
 
 	/** A turn started: enter its opening phase and drop the previous turn's outcome. */
@@ -655,6 +665,7 @@ export class Engine {
 		if (!rec) return;
 		// A new turn supersedes the previous outcome, so the stale stopReason goes.
 		rec.stopReason = undefined;
+		rec.errorReason = undefined;
 		rec.activity = "thinking";
 		rec.currentTool = undefined;
 		rec.lastActivity = Date.now();

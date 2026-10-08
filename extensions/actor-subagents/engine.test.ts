@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRoutedAgentMessage, type RoutedAgentMessage } from "./agent-message.ts";
-import { agentStatus, formatStatus } from "./agent-status.ts";
+import { formatStatus } from "./agent-status.ts";
 import type { AgentHandle } from "./agent-record.ts";
 import type { EngineResumeResult } from "./control-result.ts";
 import { Engine } from "./engine.ts";
@@ -35,11 +35,11 @@ test("reportError ends the turn and surfaces the error status", () => {
 	const e = new Engine(caps);
 	e.addAgent({ ...mainRecord(), name: "w", depth: 1 });
 	e.setActivity("w", "thinking");
-	assert.equal(formatStatus(agentStatus(e.get("w")!)), "thinking");
+	assert.equal(formatStatus(e.status(e.get("w")!)), "thinking");
 	e.reportError("w", "boom");
 	const rec = e.get("w")!;
 	assert.equal(rec.activity, undefined);
-	assert.equal(formatStatus(agentStatus(rec)), "error"); // failure visible at idle, not silently "idle"
+	assert.equal(formatStatus(e.status(rec)), "error: boom"); // failure visible at idle, not silently "idle"
 	assert.equal(e.events.at(-1)?.type, "error");
 });
 
@@ -161,7 +161,7 @@ test("route buffers while paused", async () => {
 	e.pause("main");
 	const r = await e.route("main", "coder", "hi");
 
-	assert.deepEqual(r, { outcome: "buffered" });
+	assert.equal((r).outcome, "buffered");
 	assert.equal(delivered, undefined); // Should not deliver
 	assert.deepEqual(e.get("coder")?.pausedInbox, [createRoutedAgentMessage("main", "hi")]);
 	assert.equal(e.events.at(-1)?.type, "route"); // Verify edge count and route event still fired
@@ -214,8 +214,8 @@ test("pause marks only mid-turn agents as pausedMidTurn", () => {
 	e.endTurn("busy");
 	assert.equal(e.get("busy")?.pausedMidTurn, true);
 	// Both are stopped, so both read as paused; only 'busy' is re-triggered on resume.
-	assert.equal(formatStatus(agentStatus(e.get("busy")!)), "paused");
-	assert.equal(formatStatus(agentStatus(e.get("done")!)), "paused");
+	assert.equal(formatStatus(e.status(e.get("busy")!)), "paused by main");
+	assert.equal(formatStatus(e.status(e.get("done")!)), "paused by main");
 	assert.equal(e.get("done")?.pausedMidTurn, undefined);
 });
 
@@ -243,11 +243,11 @@ test("setStopReason sets it; a new turn (setStreaming true) clears it", () => {
 	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
 	e.setStopReason("a", "error");
 	assert.equal(e.get("a")?.stopReason, "error");
-	assert.equal(formatStatus(agentStatus(e.get("a")!)), "error");
+	assert.equal(formatStatus(e.status(e.get("a")!)), "error: the turn failed after the SDK's retries");
 	e.beginTurn("a"); // new turn starts -> stale outcome cleared
 	assert.equal(e.get("a")?.stopReason, undefined);
 	e.endTurn("a");
-	assert.equal(formatStatus(agentStatus(e.get("a")!)), "idle");
+	assert.equal(formatStatus(e.status(e.get("a")!)), "idle");
 	assert.doesNotThrow(() => e.setStopReason("ghost", "error"));
 });
 
@@ -378,7 +378,7 @@ test("killAll removes every agent except 'main' and returns their names", async 
 	e.addAgent(mainRecord());
 	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
 	e.addAgent({ ...mainRecord(), name: "b", depth: 1 });
-	const { affected } = await e.killAll();
+	const { affected } = await e.killAll("user");
 	assert.deepEqual(affected.sort(), ["a", "b"]);
 	assert.equal(e.has("main"), true);
 	assert.equal(e.list().length, 1);
@@ -533,7 +533,7 @@ test("a route issued while the target is paused buffers and lands on resume", as
 
 	// explore sends to exploit while the pause holds
 	const routeResult = await e.route("explore", "exploit", "do the work");
-	assert.deepEqual(routeResult, { outcome: "buffered" });
+	assert.equal((routeResult).outcome, "buffered");
 	assert.deepEqual(delivered, []); // exploit didn't receive it yet
 
 	// User resumes the swarm
@@ -611,11 +611,11 @@ test("pause(names) stops only the named agents; the rest keep running", async ()
 	assert.deepEqual(e.pausedAgents(), ["a"]);
 	assert.equal(e.recordTurnStart("a").abort, true);
 	assert.equal(e.recordTurnStart("b").abort, false);
-	assert.deepEqual(await e.route("main", "a", "hi"), { outcome: "buffered" });
+	assert.equal((await e.route("main", "a", "hi")).outcome, "buffered");
 	assert.deepEqual(await e.route("main", "b", "hi"), { outcome: "delivered" });
 	assert.deepEqual(delivered, ["b"]);
-	assert.equal(formatStatus(agentStatus(e.get("a")!)), "paused"); // idle-but-paused reads as paused
-	assert.equal(formatStatus(agentStatus(e.get("b")!)), "idle");
+	assert.equal(formatStatus(e.status(e.get("a")!)), "paused by main"); // idle-but-paused reads as paused
+	assert.equal(formatStatus(e.status(e.get("b")!)), "idle");
 	assert.deepEqual(e.events.at(-1), { type: "route", from: "main", to: "b", preview: "hi", buffered: false, ts: e.events.at(-1)!.ts });
 });
 
@@ -650,8 +650,8 @@ test("resume(names) releases only those agents", async () => {
 
 	assert.deepEqual(released(await e.resume("main", ["a"])), { affected: ["a"], interrupted: [], bufferedMessages: 0 });
 	assert.equal(e.get("a")?.turns, 1, "per-agent turn telemetry survives a resume");
-	assert.equal(e.get("a")?.paused, false);
-	assert.equal(e.get("b")?.paused, true, "unnamed agents stay paused");
+	assert.equal(e.get("a")?.paused, undefined);
+	assert.equal(e.get("b")?.paused, "main", "unnamed agents stay paused");
 	assert.equal(e.get("b")?.pausedMidTurn, true);
 	assert.deepEqual(e.pausedAgents(), ["b"]);
 	const event = e.events.at(-1) as { type: string; names: string[] };
@@ -800,7 +800,7 @@ test("awaitReaction reports a failing turn as moving with the error status", asy
 	e.reportError("w", "boom");
 	assert.deepEqual(await withoutWaiting("awaitReaction", pending), {
 		observed: "moving",
-		status: { kind: "idle", outcome: "error" },
+		status: { kind: "idle", outcome: "error", reason: "boom" },
 	});
 });
 
@@ -813,7 +813,7 @@ test("awaitReaction sees a reaction that happened before the wait started", asyn
 	e.reportError("w", "delivery failed");
 	assert.deepEqual(await withoutWaiting("awaitReaction", e.awaitReaction("w", sinceEvent, 60_000)), {
 		observed: "moving",
-		status: { kind: "idle", outcome: "error" },
+		status: { kind: "idle", outcome: "error", reason: "delivery failed" },
 	});
 });
 
@@ -873,7 +873,7 @@ test("statusOf reports a paused agent as paused", () => {
 	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
 	assert.deepEqual(e.statusOf("a"), { kind: "idle" });
 	e.pause("main", ["a"]);
-	assert.deepEqual(e.statusOf("a"), { kind: "paused" });
+	assert.deepEqual(e.statusOf("a"), { kind: "paused", by: "main" });
 	assert.equal(e.statusOf("ghost"), undefined);
 });
 
@@ -930,10 +930,10 @@ test("pausing an agent holds its whole subtree and reports every agent that stop
 	assert.equal(e.get("b")?.pausedMidTurn, true, "a mid-turn descendant is marked for re-triggering");
 	assert.equal(e.get("c")?.pausedMidTurn, undefined);
 	assert.equal(e.recordTurnStart("c").abort, true);
-	assert.deepEqual(await e.route("main", "c", "hold"), { outcome: "buffered" });
+	assert.equal((await e.route("main", "c", "hold")).outcome, "buffered");
 	assert.deepEqual(delivered.c, []);
-	assert.deepEqual(e.statusOf("c"), { kind: "paused" });
-	assert.deepEqual(e.status(e.get("c")!), { kind: "paused" });
+	assert.deepEqual(e.statusOf("c"), { kind: "paused", by: "main", holder: "a" });
+	assert.deepEqual(e.status(e.get("c")!), { kind: "paused", by: "main", holder: "a" });
 	const event = e.events.filter((ev) => ev.type === "pause").at(-1) as { names: string[] };
 	assert.deepEqual(event.names, ["a"], "the event names the flag that changed");
 });
@@ -969,7 +969,7 @@ test("resuming a descendant an ancestor still holds clears its flag but releases
 	e.pause("main", ["a"]);
 	await e.route("main", "b", "wait");
 	assert.deepEqual(released(await e.resume("main", ["b"])), { affected: [], interrupted: [], bufferedMessages: 0 });
-	assert.equal(e.get("b")?.paused, false);
+	assert.equal(e.get("b")?.paused, undefined);
 	assert.deepEqual(e.pausedAgents(), ["a", "b", "c"], "a still holds its subtree");
 	assert.equal(e.events.at(-1)?.type, "resume", "a cleared flag is a change worth reporting");
 	assert.deepEqual(delivered.b, []);
@@ -1093,7 +1093,7 @@ test("resume waits for a pause's abort to finish before the agent runs again", a
 	// The resume already took effect in call order; only its side effects wait.
 	assert.deepEqual(e.pausedAgents(), []);
 	// A message arriving meanwhile waits too: a live delivery would start a turn the late abort kills.
-	assert.deepEqual(await e.route("main", "w", "meanwhile"), { outcome: "buffered" });
+	assert.equal((await e.route("main", "w", "meanwhile")).outcome, "buffered");
 	assert.equal(e.recordTurnStart("w").abort, true, "no turn starts while our abort is in flight");
 	finishAbort?.();
 	assert.deepEqual((await resumed).affected, ["w"]);
@@ -1227,4 +1227,56 @@ test("a resumed agent waits for every abort in flight, not only the newest", asy
 	aborts[0]?.();
 	await Promise.all([first, second]);
 	assert.deepEqual(log, ["abort 1", "abort 0", "delivered"]);
+});
+
+test("the non-agent actors and the scheduler voice are reserved agent names", () => {
+	const e = new Engine(caps);
+	for (const name of ["user", "restore", "scheduler"]) {
+		assert.deepEqual(e.canSpawn(name, 0), { ok: false, reason: `name '${name}' is reserved` });
+	}
+});
+
+test("'user' and 'restore' act with main's authority and are recorded as the actor", async () => {
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+	e.addAgent(mainRecord());
+	e.addAgent({ ...mainRecord(), name: "lead", depth: 1 });
+	e.addAgent({ ...mainRecord(), name: "helper", spawnedBy: "lead", depth: 2 });
+	assert.deepEqual(e.pause("user").affected, ["lead", "helper"], "no names = main's direct children");
+	assert.equal(e.get("lead")?.paused, "user");
+	assert.deepEqual(e.events.at(-1), { type: "pause", names: ["lead"], by: "user", ts: e.events.at(-1)!.ts });
+	assert.equal(formatStatus(e.status(e.get("lead")!)), "paused by user");
+	assert.equal(formatStatus(e.status(e.get("helper")!)), "paused (held by lead, paused by user)");
+
+	await e.resume("restore", ["lead"]);
+	assert.equal(e.get("lead")?.paused, undefined);
+	assert.equal((e.events.at(-1) as { by: string }).by, "restore");
+
+	await e.kill("user", ["lead"]);
+	assert.deepEqual(
+		e.events.filter((ev) => ev.type === "kill").map((ev) => [ev.type === "kill" && ev.name, ev.type === "kill" && ev.by]),
+		[["helper", "user"], ["lead", "user"]],
+	);
+});
+
+test("a flag keeps the actor who set it until cleared, even when another actor pauses again", () => {
+	const e = new Engine(caps);
+	e.addAgent(mainRecord());
+	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
+	e.pause("main", ["a"]);
+	e.pause("user", ["a"]); // already paused: changes nothing
+	assert.deepEqual(e.statusOf("a"), { kind: "paused", by: "main" });
+});
+
+test("the error reason is recorded with the error event and cleared with the stop reason", () => {
+	const e = new Engine(caps);
+	e.addAgent({ ...mainRecord(), name: "w", depth: 1 });
+	e.setStopReason("w", "error", "rate limited");
+	e.setStopReason("w", "error", "a later report of the same failure");
+	assert.equal(e.get("w")?.errorReason, "rate limited", "the first report of a failed run is the reason");
+	assert.deepEqual(e.statusOf("w"), { kind: "idle", outcome: "error", reason: "rate limited" });
+	e.beginTurn("w");
+	assert.equal(e.get("w")?.errorReason, undefined);
+	e.setStopReason("w", "error", "boom");
+	e.setStopReason("w", "stop");
+	assert.equal(e.get("w")?.errorReason, undefined);
 });

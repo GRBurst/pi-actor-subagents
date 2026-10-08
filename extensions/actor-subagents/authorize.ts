@@ -4,12 +4,24 @@
  * check for every control operation keeps the rule in one place (DRY); callers take `by` from
  * the acting agent's tool closure, never from tool arguments, so it cannot be spoofed.
  *
+ * The human ("user") and session restore ("restore") are actors without an agent of their own:
+ * they act with the authority of 'main', the root, but stay distinct as provenance so status and
+ * notices can say who did it (see authorityOf).
+ *
  * An unknown name is reported as such first: observation is unrestricted, so this reveals
  * nothing list_subagents would not.
  */
 import type { AgentRecord } from "./agent-record.ts";
 import type { CheckResult } from "./control-result.ts";
 import { isStrictDescendant } from "./spawn-tree.ts";
+
+/** Actors that are not agents: the human and session restore. Reserved as agent names. */
+export const NON_AGENT_ACTORS = ["user", "restore"] as const;
+
+/** The agent whose authority `by` acts with: 'main' for the non-agent actors, else `by` itself. */
+export function authorityOf(by: string): string {
+	return (NON_AGENT_ACTORS as readonly string[]).includes(by) ? "main" : by;
+}
 
 export function authorize(
 	agents: ReadonlyMap<string, AgentRecord>,
@@ -19,6 +31,6 @@ export function authorize(
 ): CheckResult {
 	if (!agents.has(name)) return { ok: false, reason: `unknown agent '${name}'` };
 	if (self && name === by) return { ok: true };
-	if (isStrictDescendant(agents, name, by)) return { ok: true };
+	if (isStrictDescendant(agents, name, authorityOf(by))) return { ok: true };
 	return { ok: false, reason: `'${name}' is not in your subtree` };
 }

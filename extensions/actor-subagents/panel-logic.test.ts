@@ -32,7 +32,7 @@ const histMsgs = [
 ];
 
 test("formatHistory: default offset 0 shows beginning + system prompt + header total", () => {
-	const out = formatHistory({ name: "comic", systemPrompt: "be funny", messages: histMsgs, limit: 2 });
+	const out = formatHistory({ name: "comic", status: "idle", systemPrompt: "be funny", messages: histMsgs, limit: 2 });
 	assert.match(out, /agent comic · 4 messages · showing \[0, 2\)/);
 	assert.match(out, /── system ──\nbe funny/);
 	assert.match(out, /#0 user: start task/);
@@ -40,14 +40,14 @@ test("formatHistory: default offset 0 shows beginning + system prompt + header t
 });
 
 test("formatHistory: negative offset shows the tail, no system prompt", () => {
-	const out = formatHistory({ name: "comic", systemPrompt: "be funny", messages: histMsgs, offset: -1 });
+	const out = formatHistory({ name: "comic", status: "idle", systemPrompt: "be funny", messages: histMsgs, offset: -1 });
 	assert.match(out, /showing \[3, 4\)/);
 	assert.match(out, /#3 assistant: done/);
 	assert.doesNotMatch(out, /── system ──/); // window does not cover index 0
 });
 
 test("formatHistory: never shows thinking; text, tool calls + results rendered", () => {
-	const out = formatHistory({ name: "a", messages: histMsgs, offset: 1, limit: 2 });
+	const out = formatHistory({ name: "a", status: "idle", messages: histMsgs, offset: 1, limit: 2 });
 	assert.doesNotMatch(out, /secret reasoning/);
 	assert.doesNotMatch(out, /thinking/);
 	assert.match(out, /assistant: on it/);
@@ -58,6 +58,7 @@ test("formatHistory: never shows thinking; text, tool calls + results rendered",
 test("formatHistory labels peer traffic as a subagent message, not a user message", () => {
 	const out = formatHistory({
 		name: "coder",
+		status: "idle",
 		messages: [
 			{
 				role: "custom",
@@ -261,10 +262,10 @@ test("swarmStateLine: activity count plus paused agents", () => {
 
 
 test("statusTone: a failed turn is its own tone, truncated dims like idle, work is busy", () => {
-	assert.equal(statusTone({ kind: "idle", outcome: "error" }), "error");
+	assert.equal(statusTone({ kind: "idle", outcome: "error", reason: "boom" }), "error");
 	assert.equal(statusTone({ kind: "idle", outcome: "truncated" }), "idle");
 	assert.equal(statusTone({ kind: "idle" }), "idle");
-	assert.equal(statusTone({ kind: "paused" }), "idle");
+	assert.equal(statusTone({ kind: "paused", by: "user" }), "idle");
 	assert.equal(statusTone({ kind: "spawning" }), "idle");
 	assert.equal(statusTone({ kind: "working", phase: "thinking" }), "busy");
 	assert.equal(statusTone({ kind: "working", phase: "tool", tool: "bash" }), "busy");

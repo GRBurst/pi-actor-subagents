@@ -132,7 +132,7 @@ test("smoke: spawn -> deliver -> reply -> pause buffers", async () => {
 	echo?.emit("turn_start");
 	assert.ok((echo?.aborted ?? 0) >= 1);
 	const blocked = await engine.route("main", "echo", "again");
-	assert.deepEqual(blocked, { outcome: "buffered" });
+	assert.equal(blocked.outcome, "buffered");
 });
 
 test("spawn confirms the new agent reacted and reports its observed status", async () => {
@@ -173,7 +173,7 @@ test("spawn reports an initial message as buffered when the new agent is paused"
 	assert.equal(result.ok, true);
 	// A parked message can trigger no turn, so this path must not spend the confirmation window.
 	assert.ok(Date.now() - started < 1000);
-	assert.match(result.msg, /buffered initial message \(paused\)/);
+	assert.match(result.msg, /buffered initial message \(paused by main\)/);
 	assert.doesNotMatch(result.msg, /sent initial message/);
 	assert.deepEqual(session.delivered, []);
 	assert.deepEqual(engine.get("waiting")?.pausedInbox, [createRoutedAgentMessage("main", "start later")]);
@@ -419,7 +419,7 @@ test("deliver failure surfaces as an engine error event", async () => {
 	// The failure lands between delivery and the reaction wait; the wait must find it in the event
 	// log rather than sitting out its whole window (which would make this spawn feel hung).
 	const r = await spawner.spawnAgent({ name: "bad", systemPrompt: "r", message: "go" }, "main");
-	assert.match(r.msg, /sent initial message \(error\)/);
+	assert.match(r.msg, /sent initial message \(error: boom\)/);
 	const err = engine.events.find((e) => e.type === "error");
 	assert.ok(err, "expected an error event");
 	assert.equal((err as { name: string }).name, "bad");

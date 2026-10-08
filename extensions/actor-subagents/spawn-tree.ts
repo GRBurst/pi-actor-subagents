@@ -29,7 +29,7 @@ export function nearest(
  * (Correctness by Construction).
  */
 export function pausedBy(agents: Agents, rec: AgentRecord): string | undefined {
-	return nearest(agents, rec, (cur) => cur.paused === true)?.name;
+	return nearest(agents, rec, (cur) => cur.paused !== undefined)?.name;
 }
 
 /** Is `name` a strict descendant of `ancestor`? 'main' is nobody's descendant and everyone else's ancestor. */

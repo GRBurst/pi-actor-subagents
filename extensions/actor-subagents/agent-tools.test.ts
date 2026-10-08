@@ -68,7 +68,7 @@ test("send_message reports every target's message fate next to the receiver's st
 
 	assert.equal(
 		(result.content[0] as { text?: string } | undefined)?.text,
-		"sent to worker (thinking), main (idle) · buffered for resting (paused) · failed: ghost: unknown agent 'ghost'",
+		"sent to worker (thinking), main (idle) · buffered for resting (paused by main) · failed: ghost: unknown agent 'ghost'",
 	);
 });
 

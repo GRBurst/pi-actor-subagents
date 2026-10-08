@@ -91,6 +91,8 @@ export interface AgentRecord {
 	currentTool?: string;
 	/** Terminal reason of the last finished turn; drives the idle-time status (error/truncated). Cleared when a new turn starts. */
 	stopReason?: StopReason;
+	/** Why the agent entered the error state; set with the `error` event, cleared with stopReason. */
+	errorReason?: string;
 	/**
 	 * Set when this agent was paused mid-turn (or restored from a transcript that ended mid-turn).
 	 * Marks it for re-triggering on resume; survives the agent_end of an allowed-to-complete turn
@@ -98,11 +100,13 @@ export interface AgentRecord {
 	 */
 	pausedMidTurn?: boolean;
 	/**
-	 * This agent's OWN pause flag, set by pause() and cleared by resume(). Whether the agent is
-	 * stopped is derived: it is paused while this flag is set on it or on any ancestor (see
-	 * pausedBy in spawn-tree.ts). Read the effective state through the engine, never from this field alone.
+	 * This agent's OWN pause flag, set by pause() and cleared by resume(). It holds the actor who
+	 * set it (an agent name, "user" or "restore"), so the flag and its provenance cannot disagree;
+	 * set means paused. Whether the agent is stopped is derived: it is paused while this flag is set
+	 * on it or on any ancestor (see pausedBy in spawn-tree.ts). Read the effective state through
+	 * the engine, never from this field alone.
 	 */
-	paused?: boolean;
+	paused?: string;
 	/** Reservation intermediate state: name taken, session still being created. */
 	pending?: boolean;
 	/** Messages buffered while pending (flushed to the session on attach). */

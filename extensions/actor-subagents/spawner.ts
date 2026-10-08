@@ -4,7 +4,7 @@
  * Design: ../../../DESIGN.md
  */
 import type { RoutedAgentMessage } from "./agent-message.ts";
-import type { StopReason } from "./agent-status.ts";
+import { formatStatus, type StopReason } from "./agent-status.ts";
 import type { AgentHandle, AgentRecord, AgentView } from "./agent-record.ts";
 import type { Engine } from "./engine.ts";
 import { formatReceiverStatus } from "./feed.ts";
@@ -379,7 +379,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 				// actually started on its task, without waiting for it to finish.
 				const reaction = await engine.awaitReaction(spec.name, sinceEvent);
 				sent = ` + sent initial message (${formatReceiverStatus(reaction)})`;
-			} else if (outcome.outcome === "buffered") sent = ` + buffered initial message (paused)`;
+			} else if (outcome.outcome === "buffered") sent = ` + buffered initial message (${formatStatus(outcome.status)})`;
 			else sent = ` (initial message NOT delivered: ${outcome.reason})`;
 		}
 		const model = formatModelThinking(`${resolved.provider}/${resolved.id}`, session.thinkingLevel);

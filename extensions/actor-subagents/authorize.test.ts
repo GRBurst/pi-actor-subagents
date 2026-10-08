@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentRecord } from "./agent-record.ts";
-import { authorize } from "./authorize.ts";
+import { authorityOf, authorize } from "./authorize.ts";
 
 const rec = (name: string, spawnedBy: string): AgentRecord => ({
 	name,
@@ -31,4 +31,13 @@ test("authorize reports unknown agents first and admits self only when asked", (
 	assert.deepEqual(authorize(agents, "lead", "ghost"), { ok: false, reason: "unknown agent 'ghost'" });
 	assert.deepEqual(authorize(agents, "lead", "lead", "self"), { ok: true });
 	assert.deepEqual(authorize(agents, "lead", "peer", "self"), refused("peer"));
+});
+
+test("the human and restore act with main's authority", () => {
+	for (const by of ["user", "restore"]) {
+		assert.deepEqual(authorize(agents, by, "helper"), { ok: true });
+		assert.deepEqual(authorize(agents, by, "main"), refused("main"));
+	}
+	assert.equal(authorityOf("user"), "main");
+	assert.equal(authorityOf("lead"), "lead");
 });

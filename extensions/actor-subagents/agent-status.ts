@@ -20,16 +20,27 @@ export type AgentActivity = "thinking" | "writing" | "tool";
 export type StopReason = "stop" | "length" | "toolUse" | "error" | "aborted";
 
 /**
+ * Why an agent is paused: `by` is the actor that set the holding flag (an agent name, "user" or
+ * "restore"); `holder` is the ancestor carrying that flag, absent when the agent's own flag holds it.
+ */
+export interface PauseCause {
+	by: string;
+	holder?: string;
+}
+
+/**
  * The four mutually exclusive things an agent can be, in precedence order:
- * spawning (session still starting) · paused (held by its own or an ancestor's pause, or stopped mid-turn, awaiting
+ * spawning (session still starting) · paused (held by its own or an ancestor's pause, awaiting
  * resume) · working (a turn is running) · idle (turn finished, waiting for input).
- * `outcome` reports a noteworthy terminal reason of the finished turn.
+ * A paused status carries its cause and an errored idle one its reason, so every consumer can say
+ * why without looking anything up.
  */
 export type AgentStatus =
 	| { kind: "spawning" }
-	| { kind: "paused" }
+	| ({ kind: "paused" } & PauseCause)
 	| { kind: "working"; phase: AgentActivity; tool?: string }
-	| { kind: "idle"; outcome?: "error" | "truncated" };
+	| { kind: "idle"; outcome?: "truncated" }
+	| { kind: "idle"; outcome: "error"; reason: string };
 
 /** The record fields the status is derived from (structural, so any record shape fits). */
 export interface StatusInputs {
@@ -37,13 +48,14 @@ export interface StatusInputs {
 	/** The phase of the running turn; undefined means no turn is running. */
 	activity?: AgentActivity;
 	currentTool?: string;
-	pausedMidTurn?: boolean;
 	/**
-	 * Effectively paused (its own flag or an ancestor's, as Engine.status supplies it): it runs
+	 * The effective pause (its own flag or an ancestor's, as Engine.status derives it): it runs
 	 * nothing until resumed, so "idle" would misread as ready.
 	 */
-	paused?: boolean;
+	pause?: PauseCause;
 	stopReason?: StopReason;
+	/** Why the last turn failed; read only when stopReason is "error". */
+	errorReason?: string;
 }
 
 /**
@@ -52,10 +64,11 @@ export interface StatusInputs {
  */
 export function agentStatus(r: StatusInputs): AgentStatus {
 	if (r.pending) return { kind: "spawning" };
-	if (r.paused || r.pausedMidTurn) return { kind: "paused" };
+	if (r.pause) return { kind: "paused", ...r.pause };
 	if (!r.activity) {
 		// Idle: surface a noteworthy terminal outcome of the last turn, else plain idle.
-		if (r.stopReason === "error") return { kind: "idle", outcome: "error" };
+		if (r.stopReason === "error")
+			return { kind: "idle", outcome: "error", reason: r.errorReason ?? "the turn failed" };
 		if (r.stopReason === "length") return { kind: "idle", outcome: "truncated" };
 		return { kind: "idle" };
 	}
@@ -63,18 +76,19 @@ export function agentStatus(r: StatusInputs): AgentStatus {
 }
 
 /**
- * Render a status as the short label shown in the roster:
- * spawning · paused · thinking · writing · tool:<name> · idle · error · truncated
+ * Render a status as the label every consumer shows (roster, list_subagents, history, send):
+ * spawning · paused by <actor> · paused (held by <ancestor>, paused by <actor>) · thinking ·
+ * writing · tool:<name> · idle · error: <reason> · truncated
  */
 export function formatStatus(s: AgentStatus): string {
 	switch (s.kind) {
 		case "spawning":
 			return "spawning";
 		case "paused":
-			return "paused";
+			return s.holder ? `paused (held by ${s.holder}, paused by ${s.by})` : `paused by ${s.by}`;
 		case "working":
 			return s.phase === "tool" ? (s.tool ? `tool:${s.tool}` : "tool") : s.phase;
 		case "idle":
-			return s.outcome ?? "idle";
+			return s.outcome === "error" ? `error: ${s.reason}` : (s.outcome ?? "idle");
 	}
 }

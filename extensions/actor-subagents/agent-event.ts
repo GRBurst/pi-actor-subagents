@@ -7,7 +7,8 @@ export type AgentEvent =
 	| { type: "turn"; name: string; ts: number }
 	// `names` lists exactly the agents whose own pause flag changed, so the feed never claims a
 	// stop that did not happen (The Map Is Not the Territory).
-	| { type: "pause"; names: string[]; ts: number }
-	| { type: "resume"; names: string[]; ts: number }
-	| { type: "kill"; name: string; ts: number }
+	// `by` is the actor: an agent name, "user" (the human) or "restore" (session restore).
+	| { type: "pause"; names: string[]; by: string; ts: number }
+	| { type: "resume"; names: string[]; by: string; ts: number }
+	| { type: "kill"; name: string; by: string; ts: number }
 	| { type: "error"; name: string; reason: string; ts: number };
