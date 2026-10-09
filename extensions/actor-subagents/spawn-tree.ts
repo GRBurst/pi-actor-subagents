@@ -28,7 +28,7 @@ export function nearest(
  * without extra bookkeeping, and a flag set by a lower owner survives an ancestor's resume
  * (Correctness by Construction).
  */
-export function pausedBy(agents: Agents, rec: AgentRecord): string | undefined {
+export function pauseHolder(agents: Agents, rec: AgentRecord): string | undefined {
 	return nearest(agents, rec, (cur) => cur.paused !== undefined)?.name;
 }
 

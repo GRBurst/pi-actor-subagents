@@ -48,7 +48,7 @@ There are no open ports or separate services. The extension has the same process
 
 - `index.ts`: pi integration, lifecycle, child construction, persistence orchestration, commands and UI wiring
 - `engine.ts`: stateful actor registry and orchestration: spawn/attach, scheduling, routing, pause/resume, kill/retune
-- `spawn-tree.ts`: pure spawn-tree rules (ancestry, children, kill order, derived pause `pausedBy`)
+- `spawn-tree.ts`: pure spawn-tree rules (ancestry, children, kill order, derived pause `pauseHolder`)
 - `authorize.ts`: the subtree authority rule, "who spawns, owns", and the non-agent actors `user`/`restore`
 - `abort-tracker.ts`: per-agent aborts in flight, which resume waits for
 - `agent-record.ts`, `agent-event.ts`, `control-result.ts`: the engine's record, event and control-result types

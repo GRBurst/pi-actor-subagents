@@ -1057,7 +1057,7 @@ test("a resumed target still held by an ancestor says so", async () => {
 	const { e } = chain();
 	e.pause("a", ["b"]);
 	e.pause("main", ["a"]);
-	assert.deepEqual((await e.resume("a", ["b"])).results, [{ target: "b", ok: true, reason: "still paused by 'a'" }]);
+	assert.deepEqual((await e.resume("a", ["b"])).results, [{ target: "b", ok: true, reason: "still held by 'a'" }]);
 });
 
 test("resume waits for a pause's abort to finish before the agent runs again", async () => {

@@ -198,12 +198,12 @@ test("formatResumeResult reports what changed, released and retriggered, then no
 	// Nothing set running: reporting zeros would claim work that did not happen.
 	assert.equal(
 		formatResumeResult({
-			results: [ok("b", "still paused by 'a'"), { target: "x", ok: false, reason: "'x' is not in your subtree" }],
+			results: [ok("b", "still held by 'a'"), { target: "x", ok: false, reason: "'x' is not in your subtree" }],
 			affected: [],
 			interrupted: [],
 			bufferedMessages: 0,
 		}),
-		"nothing resumed · b: still paused by 'a' · failed: x: 'x' is not in your subtree",
+		"nothing resumed · b: still held by 'a' · failed: x: 'x' is not in your subtree",
 	);
 	assert.equal(formatControlResult("pause", { results: [], affected: [] }), "no agents to pause");
 	assert.equal(formatControlResult("pause", { results: [ok("a")], affected: ["a", "b"] }), "paused a, b");

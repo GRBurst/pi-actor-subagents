@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { AgentRecord } from "./agent-record.ts";
-import { childrenOf, isStrictDescendant, nearest, pausedBy, subtreePostOrder } from "./spawn-tree.ts";
+import { childrenOf, isStrictDescendant, nearest, pauseHolder, subtreePostOrder } from "./spawn-tree.ts";
 
 const rec = (name: string, spawnedBy: string): AgentRecord => ({
 	name,
@@ -32,12 +32,12 @@ test("nearest walks from the record itself up to, but not including, main", () =
 	assert.equal(nearest(agents, undefined, () => true), undefined);
 });
 
-test("pausedBy names the nearest own flag on the agent or an ancestor", () => {
-	assert.equal(pausedBy(tree(), tree().get("c")!), undefined);
+test("pauseHolder names the nearest own flag on the agent or an ancestor", () => {
+	assert.equal(pauseHolder(tree(), tree().get("c")!), undefined);
 	const agents = tree({ a: true, b: true });
-	assert.equal(pausedBy(agents, agents.get("c")!), "b");
-	assert.equal(pausedBy(agents, agents.get("a")!), "a");
-	assert.equal(pausedBy(agents, agents.get("d")!), undefined, "a sibling subtree runs");
+	assert.equal(pauseHolder(agents, agents.get("c")!), "b");
+	assert.equal(pauseHolder(agents, agents.get("a")!), "a");
+	assert.equal(pauseHolder(agents, agents.get("d")!), undefined, "a sibling subtree runs");
 });
 
 test("isStrictDescendant: ancestors own their subtree, main owns everyone, nobody owns main", () => {

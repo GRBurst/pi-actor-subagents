@@ -18,7 +18,7 @@ import { type AgentActivity, type AgentStatus, agentStatus, type StopReason } fr
 import type { CheckResult, ControlResult, EngineResumeResult, TargetOutcome } from "./control-result.ts";
 import type { Caps } from "./settings.ts";
 import { type LifecycleChange, lifecycleNotices } from "./lifecycle-notice.ts";
-import { childrenOf, pausedBy, subtreePostOrder } from "./spawn-tree.ts";
+import { childrenOf, pauseHolder, subtreePostOrder } from "./spawn-tree.ts";
 import type { ThinkingLevel } from "./thinking-level.ts";
 
 export type RetuneResult = { ok: true; tuning: AgentTuning } | { ok: false; reason: string };
@@ -346,7 +346,7 @@ export class Engine {
 		return { results, recs };
 	}
 
-	/** Names of the paused background agents (effective state, see pausedBy). */
+	/** Names of the paused background agents (effective state, see pauseHolder). */
 	pausedAgents(): string[] {
 		return this.background()
 			.filter((rec) => this.isAgentPaused(rec))
@@ -355,7 +355,7 @@ export class Engine {
 
 	/** Is this agent paused — its own or an ancestor's flag? The state users see and control. */
 	private isAgentPaused(rec: AgentRecord): boolean {
-		return pausedBy(this.agents, rec) !== undefined;
+		return pauseHolder(this.agents, rec) !== undefined;
 	}
 
 	/**
@@ -370,7 +370,7 @@ export class Engine {
 
 	/** The agent's status with its effective pause and its cause folded in; the only status to display. */
 	status(rec: AgentRecord): AgentStatus {
-		const holder = pausedBy(this.agents, rec);
+		const holder = pauseHolder(this.agents, rec);
 		const by = holder === undefined ? undefined : this.agents.get(holder)?.paused;
 		const pause = by === undefined ? undefined : { by, ...(holder !== rec.name ? { holder } : {}) };
 		return agentStatus({ ...rec, pause });
@@ -508,8 +508,8 @@ export class Engine {
 		for (const rec of cleared) rec.paused = undefined;
 		for (const result of results) {
 			const rec = this.agents.get(result.target);
-			const holder = result.ok && rec ? pausedBy(this.agents, rec) : undefined;
-			if (holder) result.reason = `still paused by '${holder}'`;
+			const holder = result.ok && rec ? pauseHolder(this.agents, rec) : undefined;
+			if (holder) result.reason = `still held by '${holder}'`;
 		}
 		if (cleared.length === 0) return { results, affected: [], interrupted: [], bufferedMessages: 0 };
 
