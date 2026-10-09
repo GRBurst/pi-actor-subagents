@@ -39,6 +39,12 @@ test("formatHistory: default offset 0 shows beginning + system prompt + header t
 	assert.doesNotMatch(out, /#3/); // limited to 2
 });
 
+test("formatHistory: an error reason gets its own header line", () => {
+	const out = formatHistory({ name: "a", status: "error", errorReason: "rate limited", messages: histMsgs, limit: 1 });
+	assert.match(out, /\nstatus: error\nerror: rate limited\n/);
+	assert.doesNotMatch(formatHistory({ name: "a", status: "idle", messages: histMsgs, limit: 1 }), /\nerror:/);
+});
+
 test("formatHistory: negative offset shows the tail, no system prompt", () => {
 	const out = formatHistory({ name: "comic", status: "idle", systemPrompt: "be funny", messages: histMsgs, offset: -1 });
 	assert.match(out, /showing \[3, 4\)/);
@@ -262,7 +268,7 @@ test("swarmStateLine: activity count plus paused agents", () => {
 
 
 test("statusTone: a failed turn is its own tone, truncated dims like idle, work is busy", () => {
-	assert.equal(statusTone({ kind: "idle", outcome: "error", reason: "boom" }), "error");
+	assert.equal(statusTone({ kind: "idle", outcome: "error" }), "error");
 	assert.equal(statusTone({ kind: "idle", outcome: "truncated" }), "idle");
 	assert.equal(statusTone({ kind: "idle" }), "idle");
 	assert.equal(statusTone({ kind: "paused", by: "user" }), "idle");

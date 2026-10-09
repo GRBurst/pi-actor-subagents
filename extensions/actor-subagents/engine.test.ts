@@ -38,7 +38,7 @@ test("reportError ends the turn and surfaces the error status", () => {
 	e.reportError("w", "boom");
 	const rec = e.get("w")!;
 	assert.equal(rec.activity, undefined);
-	assert.equal(formatStatus(e.status(rec)), "error: boom"); // failure visible at idle, not silently "idle"
+	assert.equal(formatStatus(e.status(rec)), "error"); // failure visible at idle, not silently "idle"
 	assert.equal(e.events.at(-1)?.type, "error");
 });
 
@@ -242,7 +242,7 @@ test("setStopReason sets it; a new turn (setStreaming true) clears it", () => {
 	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
 	e.setStopReason("a", "error");
 	assert.equal(e.get("a")?.stopReason, "error");
-	assert.equal(formatStatus(e.status(e.get("a")!)), "error: the turn failed after the SDK's retries");
+	assert.equal(formatStatus(e.status(e.get("a")!)), "error");
 	e.beginTurn("a"); // new turn starts -> stale outcome cleared
 	assert.equal(e.get("a")?.stopReason, undefined);
 	e.endTurn("a");
@@ -799,7 +799,7 @@ test("awaitReaction reports a failing turn as moving with the error status", asy
 	e.reportError("w", "boom");
 	assert.deepEqual(await withoutWaiting("awaitReaction", pending), {
 		observed: "moving",
-		status: { kind: "idle", outcome: "error", reason: "boom" },
+		status: { kind: "idle", outcome: "error" },
 	});
 });
 
@@ -812,7 +812,7 @@ test("awaitReaction sees a reaction that happened before the wait started", asyn
 	e.reportError("w", "delivery failed");
 	assert.deepEqual(await withoutWaiting("awaitReaction", e.awaitReaction("w", sinceEvent, 60_000)), {
 		observed: "moving",
-		status: { kind: "idle", outcome: "error", reason: "delivery failed" },
+		status: { kind: "idle", outcome: "error" },
 	});
 });
 
@@ -1271,7 +1271,7 @@ test("the error reason is recorded with the error event and cleared with the sto
 	e.setStopReason("w", "error", "rate limited");
 	e.setStopReason("w", "error", "a later report of the same failure");
 	assert.equal(e.get("w")?.errorReason, "rate limited", "the first report of a failed run is the reason");
-	assert.deepEqual(e.statusOf("w"), { kind: "idle", outcome: "error", reason: "rate limited" });
+	assert.deepEqual(e.statusOf("w"), { kind: "idle", outcome: "error" });
 	e.beginTurn("w");
 	assert.equal(e.get("w")?.errorReason, undefined);
 	e.setStopReason("w", "error", "boom");

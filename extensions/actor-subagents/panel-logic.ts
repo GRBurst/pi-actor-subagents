@@ -282,6 +282,8 @@ export function formatHistory(opts: {
 	name: string;
 	/** The agent's current status label (formatStatus), so the reader sees why it is quiet. */
 	status: string;
+	/** Why the agent's last turn failed (AgentRecord.errorReason), shown in full on its own line. */
+	errorReason?: string;
 	systemPrompt?: string;
 	messages: HistMessage[];
 	offset?: number;
@@ -294,6 +296,7 @@ export function formatHistory(opts: {
 	const start = raw >= 0 ? Math.min(raw, total) : Math.max(0, total + raw);
 	const end = Math.min(start + limit, total);
 	const lines: string[] = [`agent ${name} · ${total} messages · showing [${start}, ${end})`, `status: ${opts.status}`];
+	if (opts.errorReason) lines.push(`error: ${opts.errorReason}`);
 	if (start === 0 && systemPrompt) lines.push("── system ──", trunc(systemPrompt, 800));
 	for (let i = start; i < end; i++) {
 		const m = messages[i];

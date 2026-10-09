@@ -32,15 +32,16 @@ export interface PauseCause {
  * The four mutually exclusive things an agent can be, in precedence order:
  * spawning (session still starting) · paused (held by its own or an ancestor's pause, awaiting
  * resume) · working (a turn is running) · idle (turn finished, waiting for input).
- * A paused status carries its cause and an errored idle one its reason, so every consumer can say
- * why without looking anything up.
+ * A paused status carries its cause, so every consumer can say why without looking anything up.
+ * An errored idle status is just the fact: the reason can be long (a provider's raw error), so it
+ * stays on the record (`errorReason`) and is read only where a reader asks for it on purpose —
+ * the parent's error notice (lifecycle-notice.ts) and the subagent_history header.
  */
 export type AgentStatus =
 	| { kind: "spawning" }
 	| ({ kind: "paused" } & PauseCause)
 	| { kind: "working"; phase: AgentActivity; tool?: string }
-	| { kind: "idle"; outcome?: "truncated" }
-	| { kind: "idle"; outcome: "error"; reason: string };
+	| { kind: "idle"; outcome?: "truncated" | "error" };
 
 /** The record fields the status is derived from (structural, so any record shape fits). */
 export interface StatusInputs {
@@ -54,8 +55,6 @@ export interface StatusInputs {
 	 */
 	pause?: PauseCause;
 	stopReason?: StopReason;
-	/** Why the last turn failed; read only when stopReason is "error". */
-	errorReason?: string;
 }
 
 /**
@@ -67,8 +66,7 @@ export function agentStatus(r: StatusInputs): AgentStatus {
 	if (r.pause) return { kind: "paused", ...r.pause };
 	if (!r.activity) {
 		// Idle: surface a noteworthy terminal outcome of the last turn, else plain idle.
-		if (r.stopReason === "error")
-			return { kind: "idle", outcome: "error", reason: r.errorReason ?? "the turn failed" };
+		if (r.stopReason === "error") return { kind: "idle", outcome: "error" };
 		if (r.stopReason === "length") return { kind: "idle", outcome: "truncated" };
 		return { kind: "idle" };
 	}
@@ -78,7 +76,7 @@ export function agentStatus(r: StatusInputs): AgentStatus {
 /**
  * Render a status as the label every consumer shows (roster, list_subagents, history, send):
  * spawning · paused by <actor> · paused (held by <ancestor>, paused by <actor>) · thinking ·
- * writing · tool:<name> · idle · error: <reason> · truncated
+ * writing · tool:<name> · idle · error · truncated
  */
 export function formatStatus(s: AgentStatus): string {
 	switch (s.kind) {
@@ -89,6 +87,6 @@ export function formatStatus(s: AgentStatus): string {
 		case "working":
 			return s.phase === "tool" ? (s.tool ? `tool:${s.tool}` : "tool") : s.phase;
 		case "idle":
-			return s.outcome === "error" ? `error: ${s.reason}` : (s.outcome ?? "idle");
+			return s.outcome ?? "idle";
 	}
 }

@@ -445,6 +445,7 @@ export function makeAgentTools(
         const text = formatHistory({
           name: args.name,
           status: formatStatus(engine.status(rec)),
+          errorReason: rec.errorReason,
           systemPrompt: rec.view?.getSystemPrompt?.(),
           messages: (rec.view?.getMessages() ?? []) as {
             role?: string;

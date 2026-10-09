@@ -15,12 +15,8 @@ test("agentStatus: spawning and paused take precedence over the turn phase", () 
 	});
 });
 
-test("agentStatus: idle carries the terminal outcome (error with its reason, truncated) of the last turn", () => {
-	assert.deepEqual(agentStatus({ stopReason: "error", errorReason: "rate limited" }), {
-		kind: "idle",
-		outcome: "error",
-		reason: "rate limited",
-	});
+test("agentStatus: idle carries the terminal outcome (error, truncated) of the last turn", () => {
+	assert.deepEqual(agentStatus({ stopReason: "error" }), { kind: "idle", outcome: "error" });
 	assert.deepEqual(agentStatus({ stopReason: "length" }), { kind: "idle", outcome: "truncated" });
 	assert.deepEqual(agentStatus({ stopReason: "stop" }), { kind: "idle" });
 	assert.deepEqual(agentStatus({ stopReason: "aborted" }), { kind: "idle" });
@@ -45,6 +41,6 @@ test("formatStatus renders the label for every status, with the cause", () => {
 	assert.equal(formatStatus({ kind: "working", phase: "tool", tool: "bash" }), "tool:bash");
 	assert.equal(formatStatus({ kind: "working", phase: "tool" }), "tool");
 	assert.equal(formatStatus({ kind: "idle" }), "idle");
-	assert.equal(formatStatus({ kind: "idle", outcome: "error", reason: "boom" }), "error: boom");
+	assert.equal(formatStatus({ kind: "idle", outcome: "error" }), "error"); // the reason never enters the status
 	assert.equal(formatStatus({ kind: "idle", outcome: "truncated" }), "truncated");
 });

@@ -501,7 +501,7 @@ test("deliver failure surfaces as an engine error event", async () => {
 	// The failure lands between delivery and the reaction wait; the wait must find it in the event
 	// log rather than sitting out its whole window (which would make this spawn feel hung).
 	const r = await spawner.spawnAgent({ name: "bad", systemPrompt: "r", message: "go" }, "main");
-	assert.match(r.msg, /sent initial message \(error: boom\)/);
+	assert.match(r.msg, /sent initial message \(error\)/);
 	const err = engine.events.find((e) => e.type === "error");
 	assert.ok(err, "expected an error event");
 	assert.equal((err as { name: string }).name, "bad");
