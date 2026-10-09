@@ -74,19 +74,29 @@ export function agentStatus(r: StatusInputs): AgentStatus {
 }
 
 /**
- * Render a status as the label every consumer shows (roster, list_subagents, history, send):
- * spawning · paused by <actor> · paused (held by <ancestor>, paused by <actor>) · thinking ·
- * writing · tool:<name> · idle · error · truncated
+ * The short status label for every table and column (TUI roster, panel roster, list_subagents):
+ * spawning · paused · thinking · writing · tool:<name> · idle · error · truncated.
+ * Causes are left out so a column stays narrow and scannable; formatStatusDetail adds them.
  */
 export function formatStatus(s: AgentStatus): string {
 	switch (s.kind) {
 		case "spawning":
 			return "spawning";
 		case "paused":
-			return s.holder ? `paused (held by ${s.holder}, paused by ${s.by})` : `paused by ${s.by}`;
+			return "paused";
 		case "working":
 			return s.phase === "tool" ? (s.tool ? `tool:${s.tool}` : "tool") : s.phase;
 		case "idle":
 			return s.outcome ?? "idle";
 	}
+}
+
+/**
+ * The status with its cause, for where a single agent is read on purpose (subagent_history header,
+ * send/spawn delivery results, the panel's selected-agent line): paused by <actor> ·
+ * paused (held by <ancestor>, paused by <actor>); every other status is its short label.
+ */
+export function formatStatusDetail(s: AgentStatus): string {
+	if (s.kind !== "paused") return formatStatus(s);
+	return s.holder ? `paused (held by ${s.holder}, paused by ${s.by})` : `paused by ${s.by}`;
 }

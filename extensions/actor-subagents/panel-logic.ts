@@ -4,7 +4,7 @@ import {
 	formatAgentMessageDisplay,
 	parseRoutedAgentMessage,
 } from "./agent-message.ts";
-import { type AgentStatus, formatStatus } from "./agent-status.ts";
+import { type AgentStatus, formatStatus, formatStatusDetail } from "./agent-status.ts";
 import { formatEtaSuffix } from "./eta.ts";
 import { formatModelThinking, type ThinkingLevel } from "./thinking-level.ts";
 
@@ -88,23 +88,27 @@ export interface RosterEntry {
  */
 export const rosterDepth = (depth: number): number => Math.max(0, depth - 1);
 
-/** Lines the panel spends at most on an errored agent's reason. */
-export const ERROR_REASON_MAX_LINES = 3;
+/** Lines the panel spends at most on the selected agent's detail. */
+export const DETAIL_MAX_LINES = 3;
 
 /**
- * The selected agent's error reason for the panel, below the roster: the roster's status column
- * says only "error" (agent-status.ts keeps statuses short), so this is where the human reads why.
- * Shown only while the status IS the error: `errorReason` outlives it (a pause takes precedence in
- * agentStatus but keeps the reason until the next turn), and the panel must not contradict the
- * roster row above it. A provider's raw error can span lines and be long, so it is flattened to one paragraph and
- * hard-wrapped to `width`, at most ERROR_REASON_MAX_LINES lines (the last ends in "…" if cut).
+ * The selected agent's detail for the panel, below the roster: the roster's status column holds
+ * only the short label (agent-status.ts formatStatus), so this is where the human reads why —
+ * the pause cause while paused, the error reason while errored, nothing otherwise. The error
+ * reason is keyed on the status, not on `errorReason` alone: the reason outlives the error state
+ * (a pause takes precedence in agentStatus but keeps it until the next turn), and the panel must
+ * not contradict the roster row above it. A provider's raw error can span lines and be long, so
+ * it is flattened to one paragraph and hard-wrapped to `width`, at most DETAIL_MAX_LINES lines
+ * (the last ends in "…" if cut).
  */
-export function errorReasonLines(status: AgentStatus, errorReason: string | undefined, width: number): string[] {
-	if (status.kind !== "idle" || status.outcome !== "error" || !errorReason || width <= 0) return [];
+export function agentDetailLines(status: AgentStatus, errorReason: string | undefined, width: number): string[] {
+	if (width <= 0) return [];
+	if (status.kind === "paused") return [fitEnd(` ${formatStatusDetail(status)}`, width)];
+	if (status.kind !== "idle" || status.outcome !== "error" || !errorReason) return [];
 	const text = ` error: ${errorReason.replace(/\s+/g, " ").trim()}`;
 	const lines: string[] = [];
-	for (let i = 0; i < text.length && lines.length < ERROR_REASON_MAX_LINES; i += width) lines.push(text.slice(i, i + width));
-	if (text.length > width * ERROR_REASON_MAX_LINES) lines[lines.length - 1] = fitEnd(`${lines[lines.length - 1]}…`, width);
+	for (let i = 0; i < text.length && lines.length < DETAIL_MAX_LINES; i += width) lines.push(text.slice(i, i + width));
+	if (text.length > width * DETAIL_MAX_LINES) lines[lines.length - 1] = fitEnd(`${lines[lines.length - 1]}…`, width);
 	return lines;
 }
 
@@ -170,9 +174,7 @@ export function formatModel(model: string | undefined, thinkingLevel: ThinkingLe
 
 const NAME_CAP = 24; // names beyond this are middle-elided (keeps the distinguishing tail)
 export const CUSTOM_STATUS_MAX = 32; // hard cap on the agent-set status (also stated in the set_status prompt)
-// Wide enough for "paused (held by <name>, paused by user)" with a short name; longer causes and
-// error reasons are cut (list_subagents and subagent_history show them in full).
-const SYS_STATUS_CAP = 36;
+const SYS_STATUS_CAP = 18; // short labels only (formatStatus); a long tool name is cut
 
 /** Truncate to width with a trailing ellipsis (plain-text width). */
 function fitEnd(s: string, w: number): string {
@@ -300,7 +302,7 @@ const trunc = (s: string, n: number): string => (s.length > n ? `${s.slice(0, n)
  */
 export function formatHistory(opts: {
 	name: string;
-	/** The agent's current status label (formatStatus), so the reader sees why it is quiet. */
+	/** The agent's current status with its cause (formatStatusDetail), so the reader sees why it is quiet. */
 	status: string;
 	/** Why the agent's last turn failed (AgentRecord.errorReason), shown in full on its own line. */
 	errorReason?: string;

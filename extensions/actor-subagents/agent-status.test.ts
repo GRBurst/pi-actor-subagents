@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { agentStatus, formatStatus } from "./agent-status.ts";
+import { agentStatus, formatStatus, formatStatusDetail } from "./agent-status.ts";
 
 test("agentStatus: spawning and paused take precedence over the turn phase", () => {
 	assert.deepEqual(agentStatus({ pending: true, activity: "thinking", pause: { by: "user" } }), { kind: "spawning" });
@@ -29,13 +29,9 @@ test("agentStatus: idle carries the terminal outcome (error, truncated) of the l
 	});
 });
 
-test("formatStatus renders the label for every status, with the cause", () => {
+test("formatStatus renders the short label for every status, without causes", () => {
 	assert.equal(formatStatus({ kind: "spawning" }), "spawning");
-	assert.equal(formatStatus({ kind: "paused", by: "user" }), "paused by user");
-	assert.equal(
-		formatStatus({ kind: "paused", by: "user", holder: "lead" }),
-		"paused (held by lead, paused by user)",
-	);
+	assert.equal(formatStatus({ kind: "paused", by: "user", holder: "lead" }), "paused");
 	assert.equal(formatStatus({ kind: "working", phase: "thinking" }), "thinking");
 	assert.equal(formatStatus({ kind: "working", phase: "writing" }), "writing");
 	assert.equal(formatStatus({ kind: "working", phase: "tool", tool: "bash" }), "tool:bash");
@@ -43,4 +39,14 @@ test("formatStatus renders the label for every status, with the cause", () => {
 	assert.equal(formatStatus({ kind: "idle" }), "idle");
 	assert.equal(formatStatus({ kind: "idle", outcome: "error" }), "error"); // the reason never enters the status
 	assert.equal(formatStatus({ kind: "idle", outcome: "truncated" }), "truncated");
+});
+
+test("formatStatusDetail adds the pause cause; other statuses are their short label", () => {
+	assert.equal(formatStatusDetail({ kind: "paused", by: "user" }), "paused by user");
+	assert.equal(
+		formatStatusDetail({ kind: "paused", by: "user", holder: "lead" }),
+		"paused (held by lead, paused by user)",
+	);
+	assert.equal(formatStatusDetail({ kind: "working", phase: "tool", tool: "bash" }), "tool:bash");
+	assert.equal(formatStatusDetail({ kind: "idle", outcome: "error" }), "error");
 });

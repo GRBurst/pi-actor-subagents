@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createRoutedAgentMessage, type RoutedAgentMessage } from "./agent-message.ts";
-import { formatStatus } from "./agent-status.ts";
+import { formatStatus, formatStatusDetail } from "./agent-status.ts";
 import type { AgentHandle } from "./agent-record.ts";
 import type { EngineResumeResult } from "./control-result.ts";
 import { Engine } from "./engine.ts";
@@ -213,8 +213,8 @@ test("pause marks only mid-turn agents as pausedMidTurn", () => {
 	e.endTurn("busy");
 	assert.equal(e.get("busy")?.pausedMidTurn, true);
 	// Both are stopped, so both read as paused; only 'busy' is re-triggered on resume.
-	assert.equal(formatStatus(e.status(e.get("busy")!)), "paused by main");
-	assert.equal(formatStatus(e.status(e.get("done")!)), "paused by main");
+	assert.equal(formatStatusDetail(e.status(e.get("busy")!)), "paused by main");
+	assert.equal(formatStatusDetail(e.status(e.get("done")!)), "paused by main");
 	assert.equal(e.get("done")?.pausedMidTurn, undefined);
 });
 
@@ -613,7 +613,7 @@ test("pause(names) stops only the named agents; the rest keep running", async ()
 	assert.equal((await e.route("main", "a", "hi")).outcome, "buffered");
 	assert.deepEqual(await e.route("main", "b", "hi"), { outcome: "delivered" });
 	assert.deepEqual(delivered, ["b"]);
-	assert.equal(formatStatus(e.status(e.get("a")!)), "paused by main"); // idle-but-paused reads as paused
+	assert.equal(formatStatusDetail(e.status(e.get("a")!)), "paused by main"); // idle-but-paused reads as paused
 	assert.equal(formatStatus(e.status(e.get("b")!)), "idle");
 	assert.deepEqual(e.events.at(-1), { type: "route", from: "main", to: "b", preview: "hi", buffered: false, ts: e.events.at(-1)!.ts });
 });
@@ -1242,8 +1242,8 @@ test("'user' and 'restore' act with main's authority and are recorded as the act
 	assert.deepEqual(e.pause("user").affected, ["lead", "helper"], "no names = main's direct children");
 	assert.equal(e.get("lead")?.paused, "user");
 	assert.deepEqual(e.events.at(-1), { type: "pause", names: ["lead"], by: "user", ts: e.events.at(-1)!.ts });
-	assert.equal(formatStatus(e.status(e.get("lead")!)), "paused by user");
-	assert.equal(formatStatus(e.status(e.get("helper")!)), "paused (held by lead, paused by user)");
+	assert.equal(formatStatusDetail(e.status(e.get("lead")!)), "paused by user");
+	assert.equal(formatStatusDetail(e.status(e.get("helper")!)), "paused (held by lead, paused by user)");
 
 	await e.resume("restore", ["lead"]);
 	assert.equal(e.get("lead")?.paused, undefined);

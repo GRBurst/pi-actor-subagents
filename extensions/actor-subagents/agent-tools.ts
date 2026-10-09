@@ -19,7 +19,7 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { orderAgents } from "./agent-order.ts";
-import { formatStatus } from "./agent-status.ts";
+import { formatStatusDetail } from "./agent-status.ts";
 import type { EngineResumeResult } from "./control-result.ts";
 import type { Engine } from "./engine.ts";
 import {
@@ -444,7 +444,7 @@ export function makeAgentTools(
           };
         const text = formatHistory({
           name: args.name,
-          status: formatStatus(engine.status(rec)),
+          status: formatStatusDetail(engine.status(rec)),
           errorReason: rec.errorReason,
           systemPrompt: rec.view?.getSystemPrompt?.(),
           messages: (rec.view?.getMessages() ?? []) as {

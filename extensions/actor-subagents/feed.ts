@@ -3,7 +3,7 @@
  * No pi/TUI dependency; the strings are rendered into the UI in index.ts.
  */
 import type { OrderedAgent } from "./agent-order.ts";
-import { type AgentStatus, formatStatus } from "./agent-status.ts";
+import { type AgentStatus, formatStatus, formatStatusDetail } from "./agent-status.ts";
 import type { AgentRecord } from "./agent-record.ts";
 import type { ControlResult, EngineResumeResult } from "./control-result.ts";
 import type { Reaction } from "./engine.ts";
@@ -123,7 +123,7 @@ export type MulticastRouteOutcome =
  */
 export function formatReceiverStatus(reaction: Reaction): string {
 	if (reaction.observed === "gone") return "gone";
-	const label = formatStatus(reaction.status);
+	const label = formatStatusDetail(reaction.status);
 	const stillIdle = reaction.status.kind === "idle" && reaction.status.outcome === undefined;
 	return reaction.observed === "unmoved" && stillIdle ? `${label} (no reaction)` : label;
 }
@@ -139,7 +139,7 @@ export function formatMulticastResult(results: MulticastRouteOutcome[]): string 
 	const failed: string[] = [];
 	for (const result of results) {
 		if (result.outcome === "delivered") delivered.push(`${result.target} (${formatReceiverStatus(result.reaction)})`);
-		else if (result.outcome === "buffered") buffered.push(`${result.target} (${formatStatus(result.status)})`);
+		else if (result.outcome === "buffered") buffered.push(`${result.target} (${formatStatusDetail(result.status)})`);
 		else failed.push(`${result.target}: ${result.reason}`);
 	}
 	const parts: string[] = [];

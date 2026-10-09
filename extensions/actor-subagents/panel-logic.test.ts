@@ -15,8 +15,8 @@ import {
 	formatHistory,
 	formatModel,
 	panelRows,
-	errorReasonLines,
-	ERROR_REASON_MAX_LINES,
+	agentDetailLines,
+	DETAIL_MAX_LINES,
 } from "./panel-logic.ts";
 
 const histMsgs = [
@@ -355,20 +355,26 @@ test("formatRoster: the indent adds to the name cap, so a deep name is not elide
 
 const errored = { kind: "idle", outcome: "error" } as const;
 
-test("errorReasonLines: nothing outside the error state", () => {
-	assert.deepEqual(errorReasonLines(errored, undefined, 40), []);
-	// A paused errored agent keeps its reason on the record, but its status is the pause.
-	assert.deepEqual(errorReasonLines({ kind: "paused", by: "user" }, "boom", 40), []);
+test("agentDetailLines: nothing outside the error state", () => {
+	assert.deepEqual(agentDetailLines(errored, undefined, 40), []);
+	assert.deepEqual(agentDetailLines({ kind: "idle" }, undefined, 40), []);
 });
 
-test("errorReasonLines: flattens a multi-line reason and wraps it to the width", () => {
-	assert.deepEqual(errorReasonLines(errored, "rate\n  limited", 40), [" error: rate limited"]);
-	assert.deepEqual(errorReasonLines(errored, "abcdefghij", 10), [" error: ab", "cdefghij"]);
+test("agentDetailLines: a paused agent shows its pause cause, not a stale error reason", () => {
+	assert.deepEqual(agentDetailLines({ kind: "paused", by: "user" }, "boom", 40), [" paused by user"]);
+	assert.deepEqual(agentDetailLines({ kind: "paused", by: "user", holder: "lead" }, undefined, 40), [
+		" paused (held by lead, paused by user)",
+	]);
 });
 
-test("errorReasonLines: a long reason is cut at the line cap with an ellipsis", () => {
-	const lines = errorReasonLines(errored, "x".repeat(100), 10);
-	assert.equal(lines.length, ERROR_REASON_MAX_LINES);
+test("agentDetailLines: flattens a multi-line reason and wraps it to the width", () => {
+	assert.deepEqual(agentDetailLines(errored, "rate\n  limited", 40), [" error: rate limited"]);
+	assert.deepEqual(agentDetailLines(errored, "abcdefghij", 10), [" error: ab", "cdefghij"]);
+});
+
+test("agentDetailLines: a long reason is cut at the line cap with an ellipsis", () => {
+	const lines = agentDetailLines(errored, "x".repeat(100), 10);
+	assert.equal(lines.length, DETAIL_MAX_LINES);
 	assert.ok(lines.every((l) => l.length <= 10));
 	assert.ok(lines.at(-1)?.endsWith("…"));
 });
