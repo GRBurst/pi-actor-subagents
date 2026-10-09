@@ -6,10 +6,13 @@
  * Design: ../../../DESIGN.md
  */
 
+import { isLifecycleNotice } from "./agent-message.ts";
 import { isThinkingLevel, type ThinkingLevel } from "./thinking-level.ts";
 
 export interface RawMessage {
 	role?: string;
+	customType?: string;
+	details?: unknown;
 	content?: unknown;
 	toolCallId?: string;
 	stopReason?: string;
@@ -35,12 +38,15 @@ function assistantToolCalls(m: RawMessage): { id: string; name: string }[] {
  * tool calls and a normal stop reason. Everything else means it was mid-turn (trailing
  * toolResult the model still owes a reply to, dangling tool calls, or aborted/error) →
  * pausedMidTurn, so resume re-triggers it.
+ * Lifecycle notices are skipped: they are appended silently (spawner.ts `append`) to a settled
+ * session, so a trailing notice is not input the agent owes a reply to.
  */
 export function deriveStatus(messages: RawMessage[]): "idle" | "pausedMidTurn" {
-	if (messages.length === 0) return "idle";
-	const last = messages[messages.length - 1];
+	const answerable = messages.filter((m) => !(m.role === "custom" && isLifecycleNotice(m.customType, m.details)));
+	const last = answerable[answerable.length - 1];
+	if (last === undefined) return "idle";
 	if (
-		last?.role === "assistant" &&
+		last.role === "assistant" &&
 		assistantToolCalls(last).length === 0 &&
 		last.stopReason !== "aborted" &&
 		last.stopReason !== "error"

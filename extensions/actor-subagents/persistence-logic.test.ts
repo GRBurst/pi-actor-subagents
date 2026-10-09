@@ -41,6 +41,18 @@ test("deriveStatus: aborted/error stop reason -> pausedMidTurn", () => {
 	assert.equal(deriveStatus([assistant([], "error")]), "pausedMidTurn");
 });
 
+test("deriveStatus: trailing lifecycle notices are skipped", () => {
+	const custom = (from: string): RawMessage => ({
+		role: "custom",
+		customType: "agent-message",
+		details: { parts: [{ from, content: "x" }] },
+	});
+	assert.equal(deriveStatus([user(), assistant([]), custom("scheduler"), custom("scheduler")]), "idle");
+	assert.equal(deriveStatus([assistant([], "aborted"), custom("scheduler")]), "pausedMidTurn");
+	// A peer message starts a turn, so an unanswered one is interrupted work.
+	assert.equal(deriveStatus([user(), assistant([]), custom("a")]), "pausedMidTurn");
+});
+
 test("roster round-trip serialize -> parse", () => {
 	const agents = [
 		{ name: "main", spawnedBy: "main", depth: 0, model: "x/y", sessionFile: "/m" },

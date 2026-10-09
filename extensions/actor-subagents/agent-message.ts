@@ -1,6 +1,12 @@
 /** The stable Pi custom-message identity for peer-to-peer agent traffic. */
 export const AGENT_MESSAGE_CUSTOM_TYPE = "agent-message";
 
+/**
+ * The engine's own sender voice. Its messages are lifecycle notices (lifecycle-notice.ts), which
+ * are appended without starting a turn, so they never ask the recipient for a reply.
+ */
+export const SCHEDULER = "scheduler";
+
 export interface RoutedAgentMessagePart {
 	from: string;
 	content: string;
@@ -45,6 +51,12 @@ export function toCustomAgentMessage(message: RoutedAgentMessage): CustomAgentMe
 		display: true,
 		details: message,
 	};
+}
+
+/** Is this persisted custom message a lifecycle notice, i.e. sent only by the scheduler? */
+export function isLifecycleNotice(customType: unknown, details: unknown): boolean {
+	if (customType !== AGENT_MESSAGE_CUSTOM_TYPE) return false;
+	return parseRoutedAgentMessage(details)?.parts.every((part) => part.from === SCHEDULER) ?? false;
 }
 
 /** Parse persisted extension details at the display boundary instead of trusting unknown data. */

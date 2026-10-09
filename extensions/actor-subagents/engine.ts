@@ -8,6 +8,7 @@ import {
 	createRoutedAgentMessage,
 	mergeRoutedAgentMessages,
 	type RoutedAgentMessage,
+	SCHEDULER,
 } from "./agent-message.ts";
 import type { AgentEvent } from "./agent-event.ts";
 import { AbortTracker } from "./abort-tracker.ts";
@@ -66,7 +67,7 @@ export type DeliverUserResult = { outcome: "delivered" } | { outcome: "refused";
 // 'main' is the foreground chat, the non-agent actors appear as provenance (`by`), and
 // "scheduler" is the engine's own sender voice: an agent by any of these names would be
 // indistinguishable from them.
-const RESERVED = new Set(["main", "scheduler", ...NON_AGENT_ACTORS]);
+const RESERVED = new Set(["main", SCHEDULER, ...NON_AGENT_ACTORS]);
 const NAME_RE = /^[a-zA-Z0-9_-]+$/;
 
 /** A record as a lifecycle-notice target: itself and the parent to tell. */
@@ -677,7 +678,7 @@ export class Engine {
 	/** Tell the parents what a lifecycle change did to their children (lifecycle-notice.ts decides). */
 	private announce(change: LifecycleChange): void {
 		const notices = lifecycleNotices(change, new Set(this.agents.keys()), new Date());
-		for (const { to, content } of notices) this.notify(to, createRoutedAgentMessage("scheduler", content));
+		for (const { to, content } of notices) this.notify(to, createRoutedAgentMessage(SCHEDULER, content));
 	}
 
 	/**
