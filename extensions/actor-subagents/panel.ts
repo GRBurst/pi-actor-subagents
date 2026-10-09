@@ -30,6 +30,7 @@ import { renderAgentMessage } from "./agent-message-renderer.ts";
 import { orderAgents } from "./agent-order.ts";
 import type { Engine } from "./engine.ts";
 import {
+	errorReasonLines,
 	formatContext,
 	formatRoster,
 	rosterDepth,
@@ -414,6 +415,12 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 			// Swarm activity below the list — one source of truth in panel-logic.
 			const stateLine = swarmStateLine(running, deps.engine.pausedAgents().length);
 			lines.push(theme.bg("selectedBg", stateLine));
+			const selected = agents()[selectedIndex];
+			if (selected) {
+				// truncateToWidth: the wrap counts UTF-16 units, wide glyphs could still overflow a row.
+				for (const line of errorReasonLines(deps.engine.status(selected), selected.errorReason, width))
+					lines.push(theme.fg("error", truncateToWidth(line, width)));
+			}
 			lines.push(theme.fg("dim", truncateToWidth("─".repeat(width), width)));
 			// Chatbox and hint are composed BEFORE the transcript so the transcript can claim exactly
 			// the rows they leave inside the panel's budget (the editor's height varies with input).

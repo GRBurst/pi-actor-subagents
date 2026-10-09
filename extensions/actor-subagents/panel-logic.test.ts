@@ -15,6 +15,8 @@ import {
 	formatHistory,
 	formatModel,
 	panelRows,
+	errorReasonLines,
+	ERROR_REASON_MAX_LINES,
 } from "./panel-logic.ts";
 
 const histMsgs = [
@@ -349,4 +351,24 @@ test("formatRoster: the indent adds to the name cap, so a deep name is not elide
 	const flat = formatRoster([re({ name: long, depth: 0 })], 200)[0];
 	const deep = formatRoster([re({ name: long, depth: 3 })], 200)[0];
 	assert.equal(deep, `   ${flat}`); // same 24-char name cell, only shifted by the indent
+});
+
+const errored = { kind: "idle", outcome: "error" } as const;
+
+test("errorReasonLines: nothing outside the error state", () => {
+	assert.deepEqual(errorReasonLines(errored, undefined, 40), []);
+	// A paused errored agent keeps its reason on the record, but its status is the pause.
+	assert.deepEqual(errorReasonLines({ kind: "paused", by: "user" }, "boom", 40), []);
+});
+
+test("errorReasonLines: flattens a multi-line reason and wraps it to the width", () => {
+	assert.deepEqual(errorReasonLines(errored, "rate\n  limited", 40), [" error: rate limited"]);
+	assert.deepEqual(errorReasonLines(errored, "abcdefghij", 10), [" error: ab", "cdefghij"]);
+});
+
+test("errorReasonLines: a long reason is cut at the line cap with an ellipsis", () => {
+	const lines = errorReasonLines(errored, "x".repeat(100), 10);
+	assert.equal(lines.length, ERROR_REASON_MAX_LINES);
+	assert.ok(lines.every((l) => l.length <= 10));
+	assert.ok(lines.at(-1)?.endsWith("…"));
 });

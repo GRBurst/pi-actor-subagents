@@ -88,6 +88,26 @@ export interface RosterEntry {
  */
 export const rosterDepth = (depth: number): number => Math.max(0, depth - 1);
 
+/** Lines the panel spends at most on an errored agent's reason. */
+export const ERROR_REASON_MAX_LINES = 3;
+
+/**
+ * The selected agent's error reason for the panel, below the roster: the roster's status column
+ * says only "error" (agent-status.ts keeps statuses short), so this is where the human reads why.
+ * Shown only while the status IS the error: `errorReason` outlives it (a pause takes precedence in
+ * agentStatus but keeps the reason until the next turn), and the panel must not contradict the
+ * roster row above it. A provider's raw error can span lines and be long, so it is flattened to one paragraph and
+ * hard-wrapped to `width`, at most ERROR_REASON_MAX_LINES lines (the last ends in "…" if cut).
+ */
+export function errorReasonLines(status: AgentStatus, errorReason: string | undefined, width: number): string[] {
+	if (status.kind !== "idle" || status.outcome !== "error" || !errorReason || width <= 0) return [];
+	const text = ` error: ${errorReason.replace(/\s+/g, " ").trim()}`;
+	const lines: string[] = [];
+	for (let i = 0; i < text.length && lines.length < ERROR_REASON_MAX_LINES; i += width) lines.push(text.slice(i, i + width));
+	if (text.length > width * ERROR_REASON_MAX_LINES) lines[lines.length - 1] = fitEnd(`${lines[lines.length - 1]}…`, width);
+	return lines;
+}
+
 /**
  * Scheduler state line, shown below the roster (panel) and footer: how many agents work and how
  * many are paused. The per-agent phase (thinking/tool:.../paused) lives in the rows.
