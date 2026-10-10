@@ -94,3 +94,14 @@ test("control tools act as the calling agent: only its subtree obeys", async () 
 	assert.match(textOf(await call("peer", "kill_subagents", { names: ["helper"] })) ?? "", /failed: helper: 'helper' is not in your subtree/);
 	assert.ok(engine.has("helper"));
 });
+
+test("spawn describes same-session persistence and send distinguishes waking replies from silent notices", () => {
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+	const spawn = toolOf(e, "main", "spawn_subagent").description;
+	assert.match(spawn, /File-backed sessions persist subagent membership and transcripts/);
+	assert.match(spawn, /Reopening the same main session after a Pi restart restores its subagents paused; resume them explicitly/);
+	assert.match(spawn, /Messages buffered for paused agents are not persisted/);
+	const send = toolOf(e, "main", "send_message").description;
+	assert.match(send, /Replies wake you; lifecycle notices, including errors, are silent and do not start a turn/);
+	assert.match(send, /END YOUR TURN/);
+});

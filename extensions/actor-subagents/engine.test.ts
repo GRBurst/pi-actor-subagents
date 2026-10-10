@@ -1361,3 +1361,26 @@ test("a kill tells the surviving parent of each named target, not a parent kille
 	assert.equal(main.appended.length, 1);
 	assert.match(main.appended[0] ?? "", /your subagent lead was killed by user\.$/);
 });
+
+test("resume notices distinguish a cleared pause still held by an ancestor from a released child", async () => {
+	const e = new Engine({ maxAgents: 5, maxSpawnDepth: 3 });
+	const main = noticeAgent("main", "main", 0);
+	const lead = noticeAgent("lead", "main", 1);
+	e.addAgent(main.record);
+	e.addAgent(lead.record);
+	e.addAgent({ ...mainRecord(), name: "helper", spawnedBy: "lead", depth: 2 });
+	e.pause("user", ["helper"]);
+	e.pause("user", ["lead"]);
+	lead.appended.length = 0;
+	const held = await e.resume("user", ["helper"]);
+	assert.deepEqual(held.affected, []);
+	assert.equal(lead.appended.length, 1);
+	assert.match(lead.appended[0] ?? "", /the pause on your subagent helper was cleared by user; still held by 'lead'\.$/);
+	assert.doesNotMatch(lead.appended[0] ?? "", /was resumed/);
+	assert.deepEqual(lead.delivered, [], "notice does not start a turn");
+	main.appended.length = 0;
+	const released = await e.resume("user", ["lead"]);
+	assert.deepEqual(released.affected, ["lead", "helper"]);
+	assert.match(main.appended[0] ?? "", /your subagent lead was resumed by user\.$/);
+	assert.equal(lead.appended.length, 1, "implicit descendant release is not a named target notice");
+});

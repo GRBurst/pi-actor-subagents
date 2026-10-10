@@ -20,7 +20,8 @@ export interface LifecycleTarget {
  * the actor (an agent name, "user" or "restore"). An error has a reason and no actor.
  */
 export type LifecycleChange =
-	| { kind: "paused" | "resumed" | "killed"; by: string; targets: LifecycleTarget[] }
+	| { kind: "paused" | "killed"; by: string; targets: LifecycleTarget[] }
+	| { kind: "resumed"; by: string; targets: (LifecycleTarget & { holder?: string })[] }
 	| { kind: "error"; target: LifecycleTarget; reason: string };
 
 export interface LifecycleNotice {
@@ -44,19 +45,27 @@ const clock = (now: Date) => `${pad(now.getHours())}:${pad(now.getMinutes())}:${
 export function lifecycleNotices(change: LifecycleChange, live: ReadonlySet<string>, now: Date): LifecycleNotice[] {
 	const targets = change.kind === "error" ? (live.has(change.target.name) ? [change.target] : []) : change.targets;
 	const by = change.kind === "error" ? undefined : change.by;
-	const childrenOf = new Map<string, string[]>();
-	for (const { name, parent } of targets) {
+	const childrenOf = new Map<string, (LifecycleTarget & { holder?: string })[]>();
+	for (const target of targets) {
+		const { name, parent } = target;
 		if (parent === name || parent === by || !live.has(parent)) continue;
-		childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), name]);
+		childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), target]);
 	}
-	return [...childrenOf].map(([to, names]) => {
-		const one = names.length === 1;
-		const subject = one ? `your subagent ${names[0]}` : `your subagents ${names.join(", ")}`;
-		const what =
-			change.kind === "error"
-				? // The reason's own final period is dropped so the sentence ends exactly once.
-					`${subject} entered the error state: ${change.reason.replace(/\.+$/, "")}`
-				: `${subject} ${one ? "was" : "were"} ${change.kind} by ${change.by}`;
-		return { to, content: `[${clock(now)}] ${what}.` };
+	return [...childrenOf].map(([to, children]) => {
+		// Keep one notice per parent, even when some own pauses clear without releasing agents.
+		const groups = new Map<string | undefined, string[]>();
+		for (const child of children) {
+			const holder = change.kind === "resumed" ? child.holder : undefined;
+			groups.set(holder, [...(groups.get(holder) ?? []), child.name]);
+		}
+		const clauses = [...groups].map(([holder, names]) => {
+			const one = names.length === 1;
+			const subject = one ? `your subagent ${names[0]}` : `your subagents ${names.join(", ")}`;
+			if (holder) return `the ${one ? "pause" : "pauses"} on ${subject} ${one ? "was" : "were"} cleared by ${by}; still held by '${holder}'`;
+			return change.kind === "error"
+				? `${subject} entered the error state: ${change.reason.replace(/\.+$/, "")}`
+				: `${subject} ${one ? "was" : "were"} ${change.kind} by ${by}`;
+		});
+		return { to, content: `[${clock(now)}] ${clauses.join(". ")}.` };
 	});
 }

@@ -67,3 +67,14 @@ test("an error tells the live parent of a live agent, with the reason and no act
 		/aborted\.$/,
 	);
 });
+
+test("one resume notice groups released and still-held direct children truthfully", () => {
+	assert.deepEqual(lifecycleNotices({ kind: "resumed", by: "user", targets: [
+		{ name: "a", parent: "lead" },
+		{ name: "b", parent: "lead", holder: "lead" },
+		{ name: "c", parent: "lead", holder: "lead" },
+	] }, live("lead", "a", "b", "c"), at), [{
+		to: "lead",
+		content: "[09:05:07] your subagent a was resumed by user. the pauses on your subagents b, c were cleared by user; still held by 'lead'.",
+	}]);
+});

@@ -515,7 +515,11 @@ export class Engine {
 
 		const released = this.background().filter((rec) => before.has(rec.name) && !this.isAgentPaused(rec));
 		this.emit({ type: "resume", names: cleared.map((rec) => rec.name), by, ts: Date.now() });
-		this.announce({ kind: "resumed", by, targets: cleared.map(asTarget) });
+		this.announce({
+			kind: "resumed",
+			by,
+			targets: cleared.map((rec) => ({ ...asTarget(rec), holder: pauseHolder(this.agents, rec) })),
+		});
 
 		// The released agents that still run now: not killed (or respawned) and not paused again.
 		const running = () => released.filter((rec) => this.agents.get(rec.name) === rec && !this.isAgentPaused(rec));

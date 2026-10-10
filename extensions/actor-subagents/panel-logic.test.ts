@@ -43,7 +43,7 @@ test("formatHistory: default offset 0 shows beginning + system prompt + header t
 
 test("formatHistory: an error reason gets its own header line", () => {
 	const out = formatHistory({ name: "a", status: "error", errorReason: "rate limited", messages: histMsgs, limit: 1 });
-	assert.match(out, /\nstatus: error\nerror: rate limited\n/);
+	assert.match(out, /\nstatus: error\nlast run error: rate limited\n/);
 	assert.doesNotMatch(formatHistory({ name: "a", status: "idle", messages: histMsgs, limit: 1 }), /\nerror:/);
 });
 

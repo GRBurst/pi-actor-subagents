@@ -126,6 +126,7 @@ export function makeAgentTools(
         ),
       description:
         "Create a subagent — a helper that runs inside your current session. Give it a system prompt and its first message (the task). " +
+        "File-backed sessions persist subagent membership and transcripts. Reopening the same main session after a Pi restart restores its subagents paused; resume them explicitly. Messages buffered for paused agents are not persisted. " +
         "It can then be messaged by name. The result briefly checks whether the new agent picked its task up and " +
         "reports its state ('idle (no reaction)' means it received the task but did not start a turn). " +
         "Event-driven & fire-and-forget: after spawning, END YOUR TURN — you are automatically re-woken when an agent " +
@@ -193,6 +194,7 @@ export function makeAgentTools(
         "reply, only briefly for the receiver to pick the message up, and then reports each receiver's state back: a " +
         "working state (thinking/writing/tool) means it is running a turn, 'idle (no reaction)' means it took the " +
         "message but did not start one, and buffered/gone mean it is paused or no longer exists. " +
+        "Replies wake you; lifecycle notices, including errors, are silent and do not start a turn. " +
         "After sending, END YOUR TURN — you are automatically re-woken if a reply arrives. Do NOT poll or wait in a " +
         "loop; inspect only if you suspect a problem.",
       parameters: Type.Object({

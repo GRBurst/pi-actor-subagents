@@ -47,6 +47,7 @@ export function agentSystemPrompt(
     "- If you are genuinely unsure (your task, a design decision, or a question another agent asked you), first try to resolve it yourself: explore the code, read docs, use your tools, or delegate to a peer/subagent.",
     "- If it's a judgment only someone above you can make, escalate the question up to your spawner instead of fabricating an answer or a go-ahead. You cannot reach the user directly; uncertainty flows up the chain until it reaches someone (ultimately the user) who can decide.",
     "",
+    "Replies wake you; lifecycle notices, including errors, are silent and do not start a turn.",
     "Event-driven — do NOT poll or busy-wait: you run only when a message arrives. After you",
     "act, END YOUR TURN and go idle; you are automatically re-woken the moment another agent",
     "messages you. Never poll list_subagents in a loop or try to 'wait' for a subagent to finish",
