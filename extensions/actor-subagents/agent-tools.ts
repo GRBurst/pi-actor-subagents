@@ -125,16 +125,12 @@ export function makeAgentTools(
           context?.expanded ?? false,
         ),
       description:
-        "Create a subagent — a helper that runs inside your current session. Give it a system prompt and its first message (the task). " +
-        "File-backed sessions persist subagent membership and transcripts. Reopening the same main session after a Pi restart restores its subagents paused; resume them explicitly. Messages buffered for paused agents are not persisted. " +
-        "It can then be messaged by name. The result briefly checks whether the new agent picked its task up and " +
-        "reports its state ('idle (no reaction)' means it received the task but did not start a turn). " +
-        "Event-driven & fire-and-forget: after spawning, END YOUR TURN — you are automatically re-woken when an agent " +
-        "messages you back. Do NOT poll list_subagents or wait in a loop for completion; it wastes turns. Inspect " +
-        "(list_subagents/subagent_history) only if you suspect something went wrong. The new agent's first reply will be " +
-        "its understanding of the task plus clarification questions, then it waits — reply using send_message " +
-        "(go-ahead + any corrections) to unblock its work." +
-        // Only main can reach the human; subagents escalate uncertainty up their own chain instead.
+        "Create a subagent — a named background agent with its own model session. Give it a system prompt and its first message (the task). " +
+        "File-backed sessions attempt to save membership and transcripts; roster write failures are not reported. Reopening the same main session attempts paused restoration; missing files, unavailable models or reopen failures skip agents. Resume restored agents explicitly. Buffered messages, pending notices, custom status and ETA are not persisted. " +
+        "The result reports handoff and briefly observed activity, not receipt or task completion. 'idle (no reaction)' means no activity was observed during that window; main is not watched. " +
+        "After spawning, END YOUR TURN. Replies start an idle recipient or steer a busy one after current tools, before the next model request; paused or still-stopping recipients buffer messages. Do NOT poll or wait in a loop; inspect only if you suspect a problem. " +
+        "The child is instructed to reply with its understanding and questions, then wait for your send_message go-ahead; this is a protocol, not guaranteed compliance." +
+        // Subagents escalate user questions through their spawner rather than opening a user dialog.
         (selfName === "main"
           ? " If a spawned agent asks something you can't confidently answer yourself, ask the user rather than guessing."
           : ""),
@@ -147,7 +143,7 @@ export function makeAgentTools(
           Type.String({
             description:
               "Omit to inherit your current model (the default — almost always correct). Set 'provider/id' " +
-              "ONLY when the user explicitly named a specific model; a wrong value returns the available list.",
+              "ONLY when the user explicitly named a specific model; an unknown value reports available models when any are listed.",
           }),
         ),
         thinkingLevel: Type.Optional(
@@ -160,7 +156,7 @@ export function makeAgentTools(
         // would sit idle forever. Requiring the task removes that dead-on-arrival state.
         message: Type.String({
           description:
-            "The task, delivered as the new agent's first message right after spawn",
+            "The task, submitted as the new agent's first message after spawn",
         }),
       }),
       execute: async (_id, args) => {
@@ -189,14 +185,10 @@ export function makeAgentTools(
           context?.expanded ?? false,
         ),
       description:
-        "Replying to an agent always means calling this tool with that agent as the target. Ordinary assistant text " +
-        'does not reach the agent. Fire-and-forget message to a list of agents (e.g. ["main"]). It never waits for the ' +
-        "reply, only briefly for the receiver to pick the message up, and then reports each receiver's state back: a " +
-        "working state (thinking/writing/tool) means it is running a turn, 'idle (no reaction)' means it took the " +
-        "message but did not start one, and buffered/gone mean it is paused or no longer exists. " +
-        "Replies wake you; lifecycle notices, including errors, are silent and do not start a turn. " +
-        "After sending, END YOUR TURN — you are automatically re-woken if a reply arrives. Do NOT poll or wait in a " +
-        "loop; inspect only if you suspect a problem.",
+        "Use send_message to actively deliver a reply to agents. Ordinary assistant text is not routed, but is readable through subagent_history and the human's panel. " +
+        "Messages are handed off without waiting for completion: idle recipients start a run, busy recipients are steered after current tools, before the next model request, and paused or still-stopping recipients buffer them. " +
+        "The result briefly observes receiver activity, not receipt or reading. 'idle (no reaction)' means no activity was observed during that window, not that the message was ignored; main is not watched. Later delivery can fail. " +
+        "Lifecycle notices, including errors, are best-effort silent appends to eligible live direct parents of explicit targets, excluding the acting parent; they do not start a turn. After sending, END YOUR TURN; replies may be batched, not one turn per reply. Do NOT poll or wait in a loop; inspect only if you suspect a problem.",
       parameters: Type.Object({
         // Array-only, not a Union: weak models drop `to` entirely when the schema is
         // anyOf(string, array). A flat array removes the choice and is type-honest.
@@ -251,14 +243,14 @@ export function makeAgentTools(
         "you spawned, and theirs), so use it to " +
         "escalate work that turned out harder than expected (stronger model or higher effort) or to " +
         "downshift cheap grinding. Pass at least one of model/thinkingLevel. Takes effect from the " +
-        "target's next turn; a turn already running may finish on the old model. 'main' is the " +
+        "target's next model request, including later requests in the same run; an in-flight request keeps its old model. 'main' is the " +
         "human's own chat and cannot be retuned.",
       parameters: Type.Object({
         name: Type.String({ description: "Agent to retune" }),
         model: Type.Optional(
           Type.String({
             description:
-              "'provider/id' to switch to; omit to keep the current model. A wrong value returns the available list.",
+              "'provider/id' to switch to; omit to keep the current model. An unknown value reports available models when any are listed.",
           }),
         ),
         thinkingLevel: Type.Optional(
@@ -342,7 +334,7 @@ export function makeAgentTools(
           context?.expanded ?? false,
         ),
       description:
-        "Pause agents in your subtree (those you spawned, and theirs): their running turns stop and " +
+        "Pause agents in your subtree (those you spawned, and theirs): set pause flags and request aborts of running turns. Effects already in flight may still settle; " +
         "new messages buffer until resumed; a paused agent's whole subtree is paused with it. " +
         "To correct a subagent that went off track: pause it, send the correction with " +
         "send_message, then resume it with resume_subagents.",
@@ -350,7 +342,7 @@ export function makeAgentTools(
         names: Type.Optional(
           Type.Array(Type.String(), {
             description:
-              "Agents in your subtree to pause; omit to pause all your direct children (their subtrees follow).",
+              "Agents in your subtree to pause; omitted, empty or whitespace-only names pause all your direct children (their subtrees follow).",
           }),
         ),
       }),
@@ -375,12 +367,12 @@ export function makeAgentTools(
         ),
       description:
         "Resume paused agents in your subtree: release their buffered messages as one batch and " +
-        "retrigger their interrupted work. An agent stays paused while an agent above it is paused.",
+        "request a nudge for interrupted work after outstanding aborts finish, not confirm a new run. An agent stays paused while an ancestor holds it.",
       parameters: Type.Object({
         names: Type.Optional(
           Type.Array(Type.String(), {
             description:
-              "Agents in your subtree to resume; omit to resume all your direct children (their subtrees follow).",
+              "Agents in your subtree to resume; omitted, empty or whitespace-only names resume all your direct children (their subtrees follow).",
           }),
         ),
       }),
@@ -407,7 +399,7 @@ export function makeAgentTools(
         "thinking ('main' is the foreground chat and has no " +
         "mirrored transcript). offset: start index (0 = beginning, the default; " +
         "negative = from the end, e.g. -30 = last 30). limit: window size (default 30). The header " +
-        "reports the total message count and the shown range so you can page through.",
+        "reports the total message count and the shown range. Text and tool arguments/results are clipped; nontext content is omitted. Paging cannot retrieve clipped remainders. At index 0 the original spawn prompt is shown, not the complete effective system prompt. Removed agents are unknown.",
       parameters: Type.Object({
         name: Type.String({ description: "agent whose history to inspect" }),
         offset: Type.Optional(
@@ -474,7 +466,7 @@ export function makeAgentTools(
         "(e.g. 'parsing 500 files', 'waiting on review'). Pass empty string to clear. " +
         `Keep it terse — one short phrase, ≤ ${CUSTOM_STATUS_MAX} chars (longer is truncated in the roster). ` +
         "It must describe your CURRENT state, not a past action. " +
-        "Every tool result is stamped with the wall-clock time it finished — use those stamps to " +
+        "Tool results normally carry start/finish wall-clock stamps (finish-only when start is unavailable) — use those stamps to " +
         "gauge elapsed time and rates. Set etaMinutes (minutes from NOW until you're free) only " +
         "from a concrete basis: a command's timeout, a known duration, or a measured rate; omit it " +
         "when you would be guessing — no ETA beats a wrong one. It is fully respecified each call " +

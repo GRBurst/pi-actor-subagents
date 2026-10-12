@@ -181,7 +181,7 @@ test("formatMulticastResult reports each receiver state a delivered message can 
 	assert.equal(sentTo(unmoved({ kind: "idle" })), "sent to a (idle (no reaction))");
 	assert.equal(sentTo(unmoved({ kind: "idle", outcome: "error" })), "sent to a (error)");
 	assert.equal(sentTo(unmoved({ kind: "paused", by: "lead" })), "sent to a (paused by lead)"); // paused mid-window
-	assert.equal(sentTo({ observed: "unwatched", status: { kind: "idle" } }), "sent to a (idle)");
+	assert.equal(sentTo({ observed: "unwatched", status: { kind: "idle" } }), "sent to a (idle (not watched))");
 	assert.equal(sentTo({ observed: "moving", status: { kind: "idle", outcome: "truncated" } }), "sent to a (truncated)");
 	assert.equal(sentTo({ observed: "moving", status: { kind: "spawning" } }), "sent to a (spawning)");
 	assert.equal(sentTo({ observed: "moving", status: { kind: "working", phase: "writing" } }), "sent to a (writing)");
@@ -189,11 +189,11 @@ test("formatMulticastResult reports each receiver state a delivered message can 
 	assert.equal(sentTo({ observed: "gone" }), "sent to a (gone)");
 });
 
-test("formatResumeResult reports what changed, released and retriggered, then notes and refusals", () => {
+test("formatResumeResult reports what changed, released and requested nudges for, then notes and refusals", () => {
 	const ok = (target: string, reason?: string) => ({ target, ok: true, ...(reason ? { reason } : {}) });
 	assert.equal(
 		formatResumeResult({ results: [ok("a")], affected: ["a", "b"], interrupted: ["b"], bufferedMessages: 2 }),
-		"resumed a, b · released 2 buffered messages · retriggered 1 interrupted agent",
+		"resumed a, b · released 2 buffered messages · requested nudges for 1 interrupted agent",
 	);
 	// Nothing set running: reporting zeros would claim work that did not happen.
 	assert.equal(

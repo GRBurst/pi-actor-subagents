@@ -36,7 +36,7 @@ const histMsgs = [
 test("formatHistory: default offset 0 shows beginning + system prompt + header total", () => {
 	const out = formatHistory({ name: "comic", status: "idle", systemPrompt: "be funny", messages: histMsgs, limit: 2 });
 	assert.match(out, /agent comic · 4 messages · showing \[0, 2\)/);
-	assert.match(out, /── system ──\nbe funny/);
+	assert.match(out, /── spawn prompt ──\nbe funny/);
 	assert.match(out, /#0 user: start task/);
 	assert.doesNotMatch(out, /#3/); // limited to 2
 });
@@ -51,7 +51,7 @@ test("formatHistory: negative offset shows the tail, no system prompt", () => {
 	const out = formatHistory({ name: "comic", status: "idle", systemPrompt: "be funny", messages: histMsgs, offset: -1 });
 	assert.match(out, /showing \[3, 4\)/);
 	assert.match(out, /#3 assistant: done/);
-	assert.doesNotMatch(out, /── system ──/); // window does not cover index 0
+	assert.doesNotMatch(out, /── spawn prompt ──/); // window does not cover index 0
 });
 
 test("formatHistory: never shows thinking; text, tool calls + results rendered", () => {

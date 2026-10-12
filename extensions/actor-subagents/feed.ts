@@ -125,6 +125,7 @@ export function formatReceiverStatus(reaction: Reaction): string {
 	if (reaction.observed === "gone") return "gone";
 	const label = formatStatusDetail(reaction.status);
 	const stillIdle = reaction.status.kind === "idle" && reaction.status.outcome === undefined;
+	if (reaction.observed === "unwatched") return `${label} (not watched)`;
 	return reaction.observed === "unmoved" && stillIdle ? `${label} (no reaction)` : label;
 }
 
@@ -177,6 +178,6 @@ export function formatResumeResult(result: EngineResumeResult): string {
 	const noun = result.interrupted.length === 1 ? "agent" : "agents";
 	return formatControlResult("resume", result, [
 		`released ${result.bufferedMessages} buffered messages`,
-		`retriggered ${result.interrupted.length} interrupted ${noun}`,
+		`requested nudges for ${result.interrupted.length} interrupted ${noun}`,
 	]);
 }

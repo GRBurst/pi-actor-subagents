@@ -68,7 +68,7 @@ test("send_message reports every target's message fate next to the receiver's st
 
 	assert.equal(
 		(result.content[0] as { text?: string } | undefined)?.text,
-		"sent to worker (thinking), main (idle) · buffered for resting (paused by main) · failed: ghost: unknown agent 'ghost'",
+		"sent to worker (thinking), main (idle (not watched)) · buffered for resting (paused by main) · failed: ghost: unknown agent 'ghost'",
 	);
 });
 
@@ -89,19 +89,31 @@ test("control tools act as the calling agent: only its subtree obeys", async () 
 	// Without names: the caller's direct children.
 	assert.equal(
 		textOf(await call("lead", "resume_subagents", {})),
-		"resumed helper · released 0 buffered messages · retriggered 0 interrupted agents",
+		"resumed helper · released 0 buffered messages · requested nudges for 0 interrupted agents",
 	);
 	assert.match(textOf(await call("peer", "kill_subagents", { names: ["helper"] })) ?? "", /failed: helper: 'helper' is not in your subtree/);
 	assert.ok(engine.has("helper"));
 });
 
-test("spawn describes same-session persistence and send distinguishes waking replies from silent notices", () => {
+test("descriptions distinguish handoff, observation, persistence attempts and silent notices", () => {
 	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
-	const spawn = toolOf(e, "main", "spawn_subagent").description;
-	assert.match(spawn, /File-backed sessions persist subagent membership and transcripts/);
-	assert.match(spawn, /Reopening the same main session after a Pi restart restores its subagents paused; resume them explicitly/);
-	assert.match(spawn, /Messages buffered for paused agents are not persisted/);
-	const send = toolOf(e, "main", "send_message").description;
-	assert.match(send, /Replies wake you; lifecycle notices, including errors, are silent and do not start a turn/);
+	const description = (name: string) => toolOf(e, "main", name).description;
+	const spawn = description("spawn_subagent");
+	assert.match(spawn, /same main session attempts paused restoration/);
+	assert.match(spawn, /missing files, unavailable models or reopen failures skip agents/);
+	assert.match(spawn, /Buffered messages, pending notices, custom status and ETA are not persisted/);
+	assert.match(spawn, /not receipt or task completion/);
+	assert.doesNotMatch(spawn, /first reply will be|picked its task up/);
+	const send = description("send_message");
+	assert.match(send, /no activity was observed during that window/);
+	assert.match(send, /main is not watched/);
+	assert.match(send, /Later delivery can fail/);
+	assert.match(send, /best-effort silent appends to eligible live direct parents/);
+	assert.match(send, /excluding the acting parent; they do not start a turn/);
+	assert.match(spawn, /roster write failures are not reported/);
+	assert.match(send, /before the next model request/);
 	assert.match(send, /END YOUR TURN/);
+	assert.match(description("set_subagent_model"), /next model request, including later requests in the same run/);
+	assert.match(description("pause_subagents"), /Effects already in flight may still settle/);
+	assert.match(description("subagent_history"), /Paging cannot retrieve clipped remainders/);
 });

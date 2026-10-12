@@ -13,9 +13,20 @@ test("agentSystemPrompt requires agent replies to use send_message", () => {
 	const out = agentSystemPrompt("worker", "Be brief.", "main");
 
 	// KISS: protect the communication contract without duplicating the complete prompt.
-	assert.match(out, /The ONLY channel between agents is the send_message tool\./);
+	assert.match(out, /active replies use send_message/);
 	assert.match(
 		out,
 		/reply using send_message \(a go-ahead plus any corrections\) to unblock its work\./,
 	);
+});
+
+test("preamble distinguishes readable prose, human turns and batched replies from active delivery", () => {
+	const out = agentSystemPrompt("worker", "Be brief.", "main");
+	assert.match(out, /Ordinary assistant text is not routed/);
+	assert.match(out, /human can see it in the panel/);
+	assert.match(out, /human panel input is a real user turn/);
+	assert.match(out, /Replies can be batched/);
+	assert.match(out, /not receipt, reading or completion/);
+	assert.match(out, /END YOUR TURN/);
+	assert.doesNotMatch(out, /once per reply|ONLY channel|never receive your|answers anyway|nearly free|probably have not looked hard enough/);
 });

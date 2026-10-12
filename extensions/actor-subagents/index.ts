@@ -115,7 +115,7 @@ const RESUME_NUDGE = (now: Date, by: string) => {
   const stamp =
     `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ` +
     `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-  return `[resumed ${stamp} by ${by}] Continue your interrupted work. A missing tool result means the action outcome is UNKNOWN, not that it failed or had no effect. Inspect actual external state before retrying side-effecting actions.`;
+  return `[resume nudge ${stamp} by ${by}] Continue your interrupted work. A missing tool result means the action outcome is UNKNOWN, not that it failed or had no effect. Inspect actual external state before retrying side-effecting actions.`;
 };
 // The Engine is a globalThis singleton so it survives /reload. Consequence: a persisted
 // instance keeps the SHAPE (methods) of the code that built it — adding/changing Engine
@@ -954,7 +954,7 @@ export default function subagents(pi: ExtensionAPI) {
   // recorded as the actor, so status and notices can tell the human's actions from main's.
   pi.registerCommand("subagents-pause", {
     description:
-      "Pause agents by name (empty = all of main's children; subtrees follow): their turns stop " +
+      "Pause agents by name (empty = all of main's children; subtrees follow): request turn aborts; in-flight effects may still settle " +
       "and new messages buffer until resumed.",
     handler: async (args, ctx) => {
       ctx.ui.notify(formatControlResult("pause", engine.pause("user", parseNames(args))), "warning");
@@ -965,7 +965,7 @@ export default function subagents(pi: ExtensionAPI) {
   pi.registerCommand("subagents-resume", {
     description:
       "Resume agents by name (empty = all of main's children; subtrees follow): release buffered " +
-      "messages and retrigger interrupted work.",
+      "messages and request nudges for interrupted work.",
     handler: async (args, ctx) => {
       ctx.ui.notify(formatResumeResult(await resumeAgents("user", parseNames(args))), "info");
     },

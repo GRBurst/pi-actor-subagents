@@ -319,7 +319,7 @@ export function formatHistory(opts: {
 	const end = Math.min(start + limit, total);
 	const lines: string[] = [`agent ${name} · ${total} messages · showing [${start}, ${end})`, `status: ${opts.status}`];
 	if (opts.errorReason) lines.push(`last run error: ${opts.errorReason}`);
-	if (start === 0 && systemPrompt) lines.push("── system ──", trunc(systemPrompt, 800));
+	if (start === 0 && systemPrompt) lines.push("── spawn prompt ──", trunc(systemPrompt, 800));
 	for (let i = start; i < end; i++) {
 		const m = messages[i];
 		const role = m.role ?? "?";

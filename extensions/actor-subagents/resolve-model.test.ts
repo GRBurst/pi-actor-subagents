@@ -45,5 +45,5 @@ test("the rejection message lists what the caller could have used", () => {
 		unknownModelMessage("bogus/model", ["anthropic/opus"]),
 		"unknown model 'bogus/model'; available: anthropic/opus",
 	);
-	assert.equal(unknownModelMessage(undefined, []), "unknown model '(none)'");
+	assert.equal(unknownModelMessage(undefined, []), "unknown model '(none)'; no available models listed");
 });

@@ -43,7 +43,7 @@ export function resolveExplicitModelRef<M extends ModelLike>(
 
 /** "unknown model 'x'; available: a, b" — one phrasing for every rejected model reference. */
 export function unknownModelMessage(ref: string | undefined, available: string[]): string {
-	const hint = available.length ? `; available: ${available.join(", ")}` : "";
+	const hint = available.length ? `; available: ${available.join(", ")}` : "; no available models listed";
 	return `unknown model '${ref ?? "(none)"}'${hint}`;
 }
 
