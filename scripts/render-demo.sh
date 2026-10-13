@@ -42,7 +42,8 @@ if ! grep -q 'subagents .*3/8 agents' "$temporary/panel.ansi"; then
   printf '%s\n' 'The terminal capture does not contain the demo panel.' >&2
   exit 1
 fi
+# Feed captured bytes directly so SVG generation needs no controlling terminal.
 freeze --config base --language ansi --background '#18181b' --font.family monospace \
   --font.size 16 --line-height 1.3 --padding 16 --margin 0 --border.radius 0 \
-  --execute "cat '$temporary/panel.ansi'" --output docs/subagents.svg
+  --output docs/subagents.svg < "$temporary/panel.ansi"
 printf '%s\n' 'Rendered docs/subagents.svg from the real panel.'
