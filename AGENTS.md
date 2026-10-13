@@ -15,7 +15,7 @@ npm pack --dry-run
 
 `npm run ci` checks workflows, types, lint, and `*.test.ts` in `extensions/` and `scripts/`. CI runs the same checks inside `nix develop` and publishes successful main pushes; setup and release policy are in `docs/publishing.md`.
 
-`nix develop -c npm run demo` regenerates `docs/subagents.svg`: `scripts/demo.ts` supplies fixed example data to the real panel, and `scripts/render-demo.sh` captures isolated Pi terminal cells through tmux and freeze. No model requests or user sessions are involved. Edit the demo data, not the generated SVG, when the scene changes; CI regenerates it and checks for drift. `PI_DEMO_BIN=/path/to/pi` tests another installed Pi.
+`nix develop -c npm run demo` regenerates `docs/subagents.svg`: `scripts/demo.ts` supplies fixed example data to the real panel, and `scripts/render-demo.sh` captures isolated Pi terminal cells through tmux. `scripts/tokyo-night.json` is the demo-only theme; `scripts/render-demo-svg.ts` passes the capture to freeze with terminal color state preserved by `scripts/normalize-terminal-colors.ts`. No model requests or user sessions are involved. Edit the demo data, not the generated SVG, when the scene changes; CI regenerates it and checks for drift. `PI_DEMO_BIN=/path/to/pi` tests another installed Pi.
 
 ## Architecture and data flow
 
@@ -70,7 +70,7 @@ Extension paths below are relative to `extensions/actor-subagents/`.
 
 Repository-level paths:
 
-- `README.md`: purpose, installation, demo, tools, commands, and reminders
+- `README.md`: purpose, installation, demo, tools, configuration, and coordination
 - `docs/settings.md`: user settings and child-extension capability policy
 - `docs/subagents.svg`: editable terminal capture generated from the real panel
 - `docs/publishing.md`, `.github/workflows/ci.yml`: npm Trusted Publishing setup and release workflow

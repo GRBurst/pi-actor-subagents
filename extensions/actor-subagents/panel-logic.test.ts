@@ -239,6 +239,15 @@ test("formatRoster: the selected row is styled as a whole and keeps its status c
 	assert.match(rows[1], />$/);
 });
 
+test("formatRoster: status highlighting excludes column padding", () => {
+	const rows = formatRoster([
+		re({ name: "worker", status: { kind: "working", phase: "tool", tool: "bash" } }),
+		re({ name: "paused", status: { kind: "paused", by: "user" } }),
+	], 200, { styleStatus: (label) => `<${label}>` });
+	assert.match(rows[0], /<bash> {3}/);
+	assert.doesNotMatch(rows[0], /<bash +>/);
+});
+
 test("formatRoster: tone keys off the system status — idle stays idle despite a custom status", () => {
 	const row = formatRoster([re({ customStatus: "waiting" })], 200, {
 		styleStatus: (l, tone) => (tone === "busy" ? `BUSY[${l}]` : l),

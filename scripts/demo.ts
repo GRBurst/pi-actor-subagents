@@ -21,10 +21,10 @@ export async function createDemo() {
     persistRoster: () => {}, updateStatus: () => {},
   });
   for (const [name, parent, model, tokens, level] of [
-    ["main", "main", "anthropic/claude-sonnet-4-6", 0, "medium"],
-    ["implementer", "main", "anthropic/claude-sonnet-4-6", 9400, "medium"],
-    ["reviewer", "implementer", "openai/gpt-5.4", 6200, "high"],
-    ["researcher", "main", "anthropic/claude-haiku-4-5", 2800, "low"],
+    ["main", "main", "anthropic/claude-sonnet-5-5", 0, "high"],
+    ["implementer", "main", "anthropic/claude-sonnet-5-5", 9400, "high"],
+    ["reviewer", "implementer", "openai-codex/gpt-6.1-sol", 6200, "high"],
+    ["researcher", "main", "anthropic/claude-sonnet-5-5", 2800, "medium"],
   ] as const) {
     const messages: unknown[] = [];
     transcripts.set(name, messages);
@@ -50,12 +50,12 @@ export async function createDemo() {
   const reply = "Found one edge case: --dry-run must skip creating the output directory too.";
   messages.push({
     role: "assistant", content: [{ type: "text", text: reply }],
-    api: "openai-responses", provider: "openai", model: "gpt-5.4", usage, stopReason: "stop", timestamp,
+    api: "openai-responses", provider: "openai-codex", model: "gpt-6.1-sol", usage, stopReason: "stop", timestamp,
   });
   messages.push({
     role: "assistant", content: [{ type: "toolCall", id: "review-note", name: "send_message",
       arguments: { to: ["implementer"], content: "Please move mkdir behind the dry-run guard." } }],
-    api: "openai-responses", provider: "openai", model: "gpt-5.4", usage, stopReason: "toolUse", timestamp,
+    api: "openai-responses", provider: "openai-codex", model: "gpt-6.1-sol", usage, stopReason: "toolUse", timestamp,
   });
   await engine.route("reviewer", "implementer", "Please move mkdir behind the dry-run guard.");
   messages.push({ role: "toolResult", toolCallId: "review-note", toolName: "send_message",

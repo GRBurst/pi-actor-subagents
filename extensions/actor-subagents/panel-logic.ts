@@ -169,7 +169,7 @@ export function formatModel(model: string | undefined, thinkingLevel: ThinkingLe
 // name's own cap so nesting never costs name characters.
 // Alignment requires a roster-wide pass (column widths = max content across agents), so this
 // replaces any per-row formatting. Layout math is plain-text (ASCII content + single-width
-// glyphs); the status cell is styled only AFTER padding so ANSI never corrupts the widths.
+// glyphs); status styling excludes the column padding and uses the unstyled text's width.
 // Callers still wrap each line in the ANSI-aware truncateToWidth as a final overflow guard.
 
 const NAME_CAP = 24; // names beyond this are middle-elided (keeps the distinguishing tail)
@@ -267,11 +267,12 @@ export function formatRoster(
 		const selected = opts.selectedIndex === i;
 		const cells = visible.map((c) => {
 			const w = widthOf.get(c.key) ?? 0;
-			const fitted = (c.fit === "middle" ? fitMiddle : fitEnd)(c.cellOf(e), w).padEnd(w);
-			// Tone styling keys off the SYSTEM status only, applied after padding so widths stay exact.
-			// The selected row is left plain: a background inside it ends with a background reset,
-			// which would cut the row highlight in half.
-			return c.key === "status" && !selected ? styleStatus(fitted, statusTone(e.status)) : fitted;
+			const fitted = (c.fit === "middle" ? fitMiddle : fitEnd)(c.cellOf(e), w);
+			// Separation of Concerns: highlight the status label, not the table's alignment padding.
+			// The selected row is left plain: a background reset inside it would cut its highlight.
+			return c.key === "status" && !selected
+				? styleStatus(fitted, statusTone(e.status)) + " ".repeat(w - fitted.length)
+				: fitted.padEnd(w);
 		});
 		const line = cells.join(" ").replace(/ +$/, "");
 		return selected && opts.styleSelected ? opts.styleSelected(line) : line;

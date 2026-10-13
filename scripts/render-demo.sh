@@ -12,11 +12,11 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir "$temporary/agent"
-printf '%s\n' '{"theme":"dark"}' > "$temporary/agent/settings.json"
+printf '%s\n' '{"theme":"tokyo-night"}' > "$temporary/agent/settings.json"
 # A private tmux server and Pi agent directory leave the user's sessions and settings untouched.
 # Force truecolor, including Chalk's bold styles, independently of inherited CI color policies.
 tmux -S "$socket" -f /dev/null new-session -d -x 124 -y 52 -c "$PWD" \
-  "env -u PI_PACKAGE_DIR -u NO_COLOR PI_CODING_AGENT_DIR='$temporary/agent' PI_OFFLINE=1 COLORTERM=truecolor FORCE_COLOR=3 $pi_command --no-session --no-tools --no-context-files --no-extensions --no-skills --no-prompt-templates --no-themes -e extensions/actor-subagents/index.ts -e scripts/demo.ts" \; set-option -g remain-on-exit on
+  "env -u PI_PACKAGE_DIR -u NO_COLOR PI_CODING_AGENT_DIR='$temporary/agent' PI_OFFLINE=1 COLORTERM=truecolor FORCE_COLOR=3 $pi_command --no-session --no-tools --no-context-files --no-extensions --no-skills --no-prompt-templates --no-themes --theme scripts/tokyo-night.json -e extensions/actor-subagents/index.ts -e scripts/demo.ts" \; set-option -g remain-on-exit on
 wait_for_screen() {
   for attempt in $(seq 1 80); do
     tmux -S "$socket" capture-pane -p > "$temporary/screen.txt"
@@ -44,7 +44,5 @@ if ! grep -q 'subagents .*3/8 agents' "$temporary/panel.ansi"; then
   exit 1
 fi
 # Feed captured bytes directly so SVG generation needs no controlling terminal.
-freeze --config base --language ansi --background '#18181b' --font.family monospace \
-  --font.size 16 --line-height 1.3 --padding 16 --margin 0 --border.radius 0 \
-  --output docs/subagents.svg < "$temporary/panel.ansi"
+node scripts/render-demo-svg.ts "$temporary/panel.ansi"
 printf '%s\n' 'Rendered docs/subagents.svg from the real panel.'
