@@ -10,14 +10,17 @@
     "url": "git+https://github.com/fdietze/pi-actor-subagents.git"
   },
   "type": "module",
+  "files": ["extensions/actor-subagents", "docs/subagents.svg", "docs/settings.md", "docs/publishing.md", "DESIGN.md"],
   "pi": {
     "extensions": ["extensions/actor-subagents/index.ts"]
   },
   "scripts": {
     "typecheck": "tsgo -p tsconfig.json",
-    "lint": "oxlint extensions",
-    "test": "find extensions -name '*.test.ts' -print0 | xargs -0 -r node --test",
-    "ci": "npm run typecheck && npm run lint && npm run test"
+    "lint": "oxlint extensions scripts",
+    "test": "find extensions scripts -name '*.test.ts' -print0 | xargs -0 -r node --test",
+    "ci": "actionlint -ignore '^unexpected key \"queue\" for \"concurrency\" section\\.' && npm run typecheck && npm run lint && npm run test",
+    "publish:ci": "node scripts/publish.ts",
+    "demo": "bash scripts/render-demo.sh"
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",

@@ -20,6 +20,10 @@
           pkgs.nodejs_24
           pkgs.typescript-go
           pkgs.oxlint
+          pkgs.actionlint
+          pkgs.charm-freeze
+          pkgs.tmux
+          pkgs.librsvg
         ];
       };
     });

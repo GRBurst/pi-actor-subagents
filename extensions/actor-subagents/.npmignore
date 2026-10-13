@@ -1,0 +1,2 @@
+# Publish runtime sources only; tests and their fixtures are development files.
+*.test.ts

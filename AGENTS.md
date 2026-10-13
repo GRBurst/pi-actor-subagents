@@ -4,7 +4,7 @@ Keep this file, `README.md`, and `DESIGN.md` true to the code whenever architect
 
 ## Setup and verification
 
-Nix is the source of truth for Node.js 24, TypeScript Go, and oxlint. npm supplies only pinned development type libraries.
+Nix pins the development tools in `flake.nix`. npm supplies the pinned Pi SDK and type packages for development and integration tests.
 
 ```bash
 nix develop
@@ -13,7 +13,9 @@ npm run ci
 npm pack --dry-run
 ```
 
-`npm run ci` runs strict type-checking, linting, and every `*.test.ts` through Node's test runner. CI runs the same commands inside `nix develop`.
+`npm run ci` checks workflows, types, lint, and `*.test.ts` in `extensions/` and `scripts/`. CI runs the same checks inside `nix develop` and publishes successful main pushes; setup and release policy are in `docs/publishing.md`.
+
+`nix develop -c npm run demo` regenerates `docs/subagents.svg`: `scripts/demo.ts` supplies fixed example data to the real panel, and `scripts/render-demo.sh` captures isolated Pi terminal cells through tmux and freeze. No model requests or user sessions are involved. Edit the demo data, not the generated SVG, when the scene changes; CI regenerates it and checks for drift. `PI_DEMO_BIN=/path/to/pi` tests another installed Pi.
 
 ## Architecture and data flow
 
@@ -46,6 +48,8 @@ There are no open ports or separate services. The extension has the same process
 
 ## Source map
 
+Extension paths below are relative to `extensions/actor-subagents/`.
+
 - `index.ts`: pi integration, lifecycle, child construction, persistence orchestration, commands and UI wiring
 - `engine.ts`: stateful actor registry and orchestration: spawn/attach, scheduling, routing, pause/resume, kill/retune
 - `spawn-tree.ts`: pure spawn-tree rules (ancestry, children, kill order, derived pause `pauseHolder`)
@@ -63,6 +67,15 @@ There are no open ports or separate services. The extension has the same process
 - `tool-timestamp.ts`: pure tool-result stamper (wall-clock start + finish times)
 - `panel.ts`, `panel-logic.ts`, `feed.ts`: interactive and textual projections
 - focused `*.ts` helpers: pure domain rules; adjacent `*.test.ts` files are their tests
+
+Repository-level paths:
+
+- `README.md`: purpose, installation, demo, tools, commands, and reminders
+- `docs/settings.md`: user settings and child-extension capability policy
+- `docs/subagents.svg`: editable terminal capture generated from the real panel
+- `docs/publishing.md`, `.github/workflows/ci.yml`: npm Trusted Publishing setup and release workflow
+- `scripts/publish.ts`, `scripts/*.test.ts`: release policy, real package-content checks, and demo invariants
+- `package.json` → `files`, `extensions/actor-subagents/.npmignore`: published files; tests and `.corral` stay private
 
 ## Change rules
 
