@@ -2,14 +2,16 @@
 export const AGENT_MESSAGE_CUSTOM_TYPE = "agent-message";
 
 /**
- * The engine's own sender voice. Its messages are lifecycle notices (lifecycle-notice.ts), which
- * are appended without starting a turn, so they never ask the recipient for a reply.
+ * The engine's sender voice: silent control notices and actionable terminal-error messages
+ * (lifecycle-notice.ts). Structured per-part metadata distinguishes them on restore.
  */
 export const SCHEDULER = "scheduler";
 
 export interface RoutedAgentMessagePart {
 	from: string;
 	content: string;
+	/** Active scheduler input, not a silent notice. Absent on legacy silent scheduler messages. */
+	actionable?: boolean;
 }
 
 /**
@@ -30,8 +32,8 @@ export interface CustomAgentMessage {
 	details: RoutedAgentMessage;
 }
 
-export function createRoutedAgentMessage(from: string, content: string): RoutedAgentMessage {
-	return { parts: [{ from, content }] };
+export function createRoutedAgentMessage(from: string, content: string, actionable?: true): RoutedAgentMessage {
+	return { parts: [{ from, content, ...(actionable ? { actionable } : {}) }] };
 }
 
 /** Preserve paused mailbox order while releasing it as one race-free turn. */
@@ -53,10 +55,10 @@ export function toCustomAgentMessage(message: RoutedAgentMessage): CustomAgentMe
 	};
 }
 
-/** Is this persisted custom message a lifecycle notice, i.e. sent only by the scheduler? */
+/** Is this persisted message entirely silent scheduler notices (including legacy unmarked parts)? */
 export function isLifecycleNotice(customType: unknown, details: unknown): boolean {
 	if (customType !== AGENT_MESSAGE_CUSTOM_TYPE) return false;
-	return parseRoutedAgentMessage(details)?.parts.every((part) => part.from === SCHEDULER) ?? false;
+	return parseRoutedAgentMessage(details)?.parts.every((part) => part.from === SCHEDULER && !part.actionable) ?? false;
 }
 
 /** Parse persisted extension details at the display boundary instead of trusting unknown data. */
@@ -70,11 +72,12 @@ export function parseRoutedAgentMessage(value: unknown): RoutedAgentMessage | un
 			!("from" in part) ||
 			typeof part.from !== "string" ||
 			!("content" in part) ||
-			typeof part.content !== "string"
+			typeof part.content !== "string" ||
+			("actionable" in part && typeof part.actionable !== "boolean")
 		) {
 			return undefined;
 		}
-		parts.push({ from: part.from, content: part.content });
+		parts.push({ from: part.from, content: part.content, ...("actionable" in part ? { actionable: part.actionable as boolean } : {}) });
 	}
 	return parts.length > 0 ? { parts } : undefined;
 }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { createRoutedAgentMessage, mergeRoutedAgentMessages, toCustomAgentMessage } from "./agent-message.ts";
 import {
 	deriveStatus,
 	parseRoster,
@@ -124,4 +125,14 @@ test("restoredPlacement keeps a live parent and lets main adopt an orphan", () =
 	assert.deepEqual(restoredPlacement("lead", 1), { spawnedBy: "lead", depth: 2 });
 	// The parent was not restored: main adopts the orphan, so no spawnedBy dangles.
 	assert.deepEqual(restoredPlacement("gone", undefined), { spawnedBy: "main", depth: 1 });
+});
+
+test("restore treats unanswered actionable scheduler input as interrupted without reclassifying legacy notices", () => {
+	const notice = createRoutedAgentMessage("scheduler", "paused");
+	const error = createRoutedAgentMessage("scheduler", "failed", true);
+	const custom = (m: ReturnType<typeof createRoutedAgentMessage>): RawMessage => ({ role: "custom", ...toCustomAgentMessage(m) });
+	assert.equal(deriveStatus([assistant([]), custom(notice)]), "idle");
+	assert.equal(deriveStatus([assistant([]), custom(error)]), "pausedMidTurn");
+	assert.equal(deriveStatus([assistant([]), custom(mergeRoutedAgentMessages([notice, error]))]), "pausedMidTurn");
+	assert.equal(deriveStatus([custom(error), assistant([]), custom(notice)]), "idle");
 });

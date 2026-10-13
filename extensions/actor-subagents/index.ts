@@ -166,7 +166,9 @@ const RESUME_NUDGE = (now: Date, by: string) => {
 //      carry `by`, "user"/"restore" act with main's authority, killAll(by), errorReason, statuses
 //      carry their cause, and the engine queues silent notices (notify/settled; handles gain
 //      append/busy). A v26 instance would treat a string flag as foreign and lack these methods.
-const ENGINE_KEY = "__subagentsEngine_v27";
+// v28: terminal errors route actionable scheduler messages instead of silent notices; v27
+//      would retain the old announce/route methods after /reload and never wake a parent.
+const ENGINE_KEY = "__subagentsEngine_v28";
 
 function getEngine(): Engine {
   const g = globalThis as Record<string, unknown>;

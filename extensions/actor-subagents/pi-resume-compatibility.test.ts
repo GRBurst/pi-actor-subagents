@@ -112,3 +112,22 @@ for (const fixture of cases) {
 		}
 	});
 }
+
+test("installed Pi reopens actionable scheduler metadata without rewriting or replaying the error", (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "pi-actionable-restore-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const file = join(dir, "session.jsonl");
+	const active = toCustomAgentMessage(createRoutedAgentMessage("scheduler", "child failed", true));
+	const bytes = [
+		{ type: "session", version: 3, id: "restore-error", timestamp: new Date(0).toISOString(), cwd: dir },
+		{ type: "message", id: "a", parentId: null, timestamp: new Date(1).toISOString(), message: assistant([], "stop") },
+		{ type: "custom_message", id: "b", parentId: "a", timestamp: new Date(2).toISOString(), ...active },
+	].map((entry) => JSON.stringify(entry)).join("\n") + "\n";
+	writeFileSync(file, bytes);
+	const sm = SessionManager.open(file);
+	const messages = sm.buildSessionContext().messages;
+	assert.equal(deriveStatus(messages), "pausedMidTurn", "explicit resume can continue unanswered active input");
+	assert.deepEqual((messages.at(-1) as { details: unknown }).details, active.details);
+	assert.equal(sm.getEntries().length, 2);
+	assert.equal(readFileSync(file, "utf8"), bytes, "restore appends or replays nothing");
+});

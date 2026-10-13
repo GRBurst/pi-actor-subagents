@@ -1329,26 +1329,24 @@ test("an agent is told when someone above it acts on its child, and only about i
 	assert.equal(lead.appended.length, 1);
 });
 
-test("a notice waits while the recipient is busy, and a paused recipient takes it at once", async () => {
+test("control notices wait while busy and append silently even when paused", async () => {
 	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
 	e.addAgent(mainRecord());
 	const lead = noticeAgent("lead", "main", 1);
 	e.addAgent(lead.record);
 	e.addAgent({ ...mainRecord(), name: "helper", spawnedBy: "lead", depth: 2 });
-
 	lead.state.busy = true;
-	e.reportError("helper", "boom");
-	e.flushNotices("lead"); // still busy: nothing moves
+	e.pause("user", ["helper"]);
+	e.flushNotices("lead");
 	assert.deepEqual(lead.appended, []);
 	lead.state.busy = false;
 	e.flushNotices("lead");
-	assert.match(lead.appended[0] ?? "", /your subagent helper entered the error state: boom\.$/);
-
+	assert.match(lead.appended[0] ?? "", /helper was paused by user/);
 	e.pause("main", ["lead"]);
-	e.beginTurn("helper");
-	e.reportError("helper", "again");
-	assert.match(lead.appended[1] ?? "", /again/, "paused means idle: appended, not parked in the inbox");
+	await e.resume("user", ["helper"]);
+	assert.match(lead.appended[1] ?? "", /still held by 'lead'/);
 	assert.equal(e.get("lead")?.pausedInbox, undefined);
+	assert.deepEqual(lead.delivered, []);
 });
 
 test("a kill tells the surviving parent of each named target, not a parent killed with it", async () => {
@@ -1383,4 +1381,95 @@ test("resume notices distinguish a cleared pause still held by an ancestor from 
 	assert.deepEqual(released.affected, ["lead", "helper"]);
 	assert.match(main.appended[0] ?? "", /your subagent lead was resumed by user\.$/);
 	assert.equal(lead.appended.length, 1, "implicit descendant release is not a named target notice");
+});
+
+test("terminal errors route once per failed run to the live direct parent, never a silent copy", () => {
+	for (const parentName of ["main", "lead"]) {
+		for (const busy of [false, true]) {
+			const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+			const parent = noticeAgent(parentName, "main", parentName === "main" ? 0 : 1);
+			if (parentName !== "main") e.addAgent(mainRecord());
+			e.addAgent(parent.record);
+			e.addAgent({ ...mainRecord(), name: "child", spawnedBy: parentName, depth: 2 });
+			parent.state.busy = busy;
+			e.reportError("child", "provider failed");
+			e.setStopReason("child", "error", "duplicate");
+			assert.equal(parent.delivered.length, 1);
+			assert.match(parent.delivered[0]?.parts[0]?.content ?? "", /child entered the error state: provider failed\.$/);
+			assert.equal(parent.delivered[0]?.parts[0]?.from, "scheduler");
+			assert.equal(parent.delivered[0]?.parts[0]?.actionable, true);
+			assert.deepEqual(parent.appended, []);
+			assert.equal(e.get(parentName)?.notices, undefined);
+			e.beginTurn("child");
+			e.reportError("child", "new failure");
+			assert.equal(parent.delivered.length, 2);
+		}
+	}
+});
+
+test("error input buffers for a paused or still-stopping parent until explicit resume", async () => {
+	for (const stopping of [false, true]) {
+		const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+		e.addAgent(mainRecord());
+		const parent = noticeAgent("lead", "main", 1);
+		let finishAbort!: () => void;
+		if (stopping) parent.record.handle.abort = () => new Promise<void>((r) => { finishAbort = r; });
+		e.addAgent(parent.record);
+		e.addAgent({ ...mainRecord(), name: "child", spawnedBy: "lead", depth: 2 });
+		e.pause("main", ["lead"]);
+		const resuming = stopping ? e.resume("main", ["lead"]) : undefined;
+		e.reportError("child", "failed while held");
+		assert.equal(parent.delivered.length, 0);
+		assert.equal(e.get("lead")?.pausedInbox?.length, 1);
+		assert.deepEqual(parent.appended, []);
+		if (stopping) finishAbort();
+		await (resuming ?? e.resume("main", ["lead"]));
+		assert.equal(parent.delivered.length, 1);
+		assert.equal(parent.delivered[0]?.parts[0]?.actionable, true);
+	}
+});
+
+test("absent direct parents and non-error outcomes never route errors to an ancestor", () => {
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+	const main = noticeAgent("main", "main", 0);
+	e.addAgent(main.record);
+	e.addAgent({ ...mainRecord(), name: "orphan", spawnedBy: "removed", depth: 2 });
+	e.reportError("orphan", "no parent");
+	for (const reason of ["aborted", "length", "stop", "toolUse"] as const) e.setStopReason("main", reason);
+	e.reportError("main", "root has no parent");
+	assert.deepEqual(main.delivered, []);
+	assert.deepEqual(main.appended, []);
+});
+
+test("a rejected parent handoff reports that parent's own failure without unhandled recursion", async () => {
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+	const main = noticeAgent("main", "main", 0);
+	const parent = noticeAgent("lead", "main", 1);
+	parent.record.handle.deliver = async () => { throw new Error("parent delivery broke"); };
+	e.addAgent(main.record);
+	e.addAgent(parent.record);
+	e.addAgent({ ...mainRecord(), name: "child", spawnedBy: "lead", depth: 2 });
+	e.reportError("child", "child broke");
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(e.get("lead")?.errorReason, "parent delivery broke");
+	assert.equal(main.delivered.length, 1);
+	assert.match(main.delivered[0]?.parts[0]?.content ?? "", /lead entered the error state: parent delivery broke/);
+	assert.doesNotMatch(main.delivered[0]?.parts[0]?.content ?? "", /child broke/);
+	assert.deepEqual(main.appended, []);
+});
+
+test("a buffered error whose resumed handoff rejects records the recipient's own error", async () => {
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });
+	const main = noticeAgent("main", "main", 0);
+	const parent = noticeAgent("lead", "main", 1);
+	parent.record.handle.deliver = async () => { throw new Error("resumed delivery broke"); };
+	e.addAgent(main.record); e.addAgent(parent.record);
+	e.addAgent({ ...mainRecord(), name: "child", spawnedBy: "lead", depth: 2 });
+	e.pause("main", ["lead"]);
+	e.reportError("child", "child broke");
+	await e.resume("main", ["lead"]);
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	assert.equal(e.get("lead")?.errorReason, "resumed delivery broke");
+	assert.equal(main.delivered.length, 1);
+	assert.match(main.delivered[0]?.parts[0]?.content ?? "", /lead entered the error state: resumed delivery broke/);
 });

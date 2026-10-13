@@ -109,9 +109,11 @@ test("descriptions distinguish handoff, observation, persistence attempts and si
 	assert.match(send, /main is not watched/);
 	assert.match(send, /Later delivery can fail/);
 	assert.match(send, /best-effort silent appends to eligible live direct parents/);
-	assert.match(send, /excluding the acting parent; they do not start a turn/);
+	assert.match(send, /excluding the acting parent/);
 	assert.match(spawn, /roster write failures are not reported/);
 	assert.match(send, /before the next model request/);
+	assert.match(send, /new terminal child error routes one scheduler message/);
+	assert.match(send, /buffer while paused\/stopping/);
 	assert.match(send, /END YOUR TURN/);
 	assert.match(description("set_subagent_model"), /next model request, including later requests in the same run/);
 	assert.match(description("pause_subagents"), /Effects already in flight may still settle/);

@@ -188,7 +188,7 @@ export function makeAgentTools(
         "Use send_message to actively deliver a reply to agents. Ordinary assistant text is not routed, but is readable through subagent_history and the human's panel. " +
         "Messages are handed off without waiting for completion: idle recipients start a run, busy recipients are steered after current tools, before the next model request, and paused or still-stopping recipients buffer them. " +
         "The result briefly observes receiver activity, not receipt or reading. 'idle (no reaction)' means no activity was observed during that window, not that the message was ignored; main is not watched. Later delivery can fail. " +
-        "Lifecycle notices, including errors, are best-effort silent appends to eligible live direct parents of explicit targets, excluding the acting parent; they do not start a turn. After sending, END YOUR TURN; replies may be batched, not one turn per reply. Do NOT poll or wait in a loop; inspect only if you suspect a problem.",
+        "Pause/resume/kill notices are best-effort silent appends to eligible live direct parents of explicit targets, excluding the acting parent. A new terminal child error routes one scheduler message to its live direct parent: it can start or steer a run, or buffer while paused/stopping. After sending, END YOUR TURN; replies may be batched, not one turn per reply. Do NOT poll or wait in a loop; inspect only if you suspect a problem.",
       parameters: Type.Object({
         // Array-only, not a Union: weak models drop `to` entirely when the schema is
         // anyOf(string, array). A flat array removes the choice and is type-honest.

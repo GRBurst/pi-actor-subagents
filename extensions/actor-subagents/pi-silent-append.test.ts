@@ -41,3 +41,31 @@ test("installed Pi: triggerTurn false on an idle session appends without startin
 	assert.equal(last.customType, notice.customType);
 	assert.equal(last.content, notice.content);
 });
+
+test("installed Pi: active scheduler errors prompt idle parents and steer busy parents without silent append", async (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "pi-active-error-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const { session } = await createAgentSession({
+		cwd: dir, agentDir: dir, model,
+		sessionManager: SessionManager.inMemory(dir), settingsManager: SettingsManager.inMemory({}),
+	});
+	t.after(() => session.dispose());
+	// Replace the provider-driving entry point, not the SDK's custom-message routing. No model call.
+	let finish!: () => void;
+	const pending = new Promise<void>((resolve) => { finish = resolve; });
+	t.after(() => finish());
+	let prompted: unknown;
+	const steered: unknown[] = [];
+	session.agent.prompt = async (message) => { prompted = message; await pending; };
+	session.agent.steer = (message) => void steered.push(message);
+	const error = toCustomAgentMessage(createRoutedAgentMessage("scheduler", "child failed", true));
+	const idleRun = session.sendCustomMessage(error, { triggerTurn: true, deliverAs: "steer" });
+	assert.equal(session.isStreaming, true, "idle message entered the run path");
+	assert.deepEqual(prompted, { role: "custom", ...error, timestamp: (prompted as { timestamp: number }).timestamp });
+	await session.sendCustomMessage(error, { triggerTurn: true, deliverAs: "steer" });
+	assert.equal(steered.length, 1, "busy message uses ordinary steering");
+	assert.equal(session.messages.length, 0, "no duplicate silent append outside the agent path");
+	finish();
+	await idleRun;
+	assert.equal(session.isStreaming, false);
+});

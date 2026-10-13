@@ -288,11 +288,11 @@ test("view.getStreamingMessage tracks the in-progress assistant message, cleared
 	assert.equal(view?.getStreamingMessage?.(), undefined); // finalized into session.messages
 });
 
-test("retries produce one silent parent notice per settled logical run", async () => {
+test("retries route one parent error message per settled logical run", async () => {
 	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
 	const woken: RoutedAgentMessage[] = [];
 	const parentInbox: RoutedAgentMessage[] = [];
-	const parentMessage = (index: number): RoutedAgentMessage | undefined => parentInbox[index];
+	const parentMessage = (index: number): RoutedAgentMessage | undefined => woken[index];
 	withMain(engine, woken, parentInbox);
 	const session = new FakeSession();
 	const spawner = createSpawner({
@@ -316,7 +316,7 @@ test("retries produce one silent parent notice per settled logical run", async (
 	session.emit("agent_settled");
 	assert.equal(errors().length, 1);
 	assert.equal(errors()[0]?.reason, "rate limit attempt 4");
-	assert.equal(parentInbox.length, 1);
+	assert.equal(woken.length, 1);
 	assert.equal(parentMessage(0)?.parts[0]?.from, "scheduler");
 	assert.match(parentMessage(0)?.parts[0]?.content ?? "", /rate limit attempt 4/);
 	assert.equal(engine.get("worker")?.stopReason, "error");
@@ -328,9 +328,9 @@ test("retries produce one silent parent notice per settled logical run", async (
 	session.emit("agent_settled");
 	assert.equal(errors().length, 2);
 	assert.equal(errors()[1]?.reason, "provider unavailable");
-	assert.equal(parentInbox.length, 2);
+	assert.equal(woken.length, 2);
 	assert.match(parentMessage(1)?.parts[0]?.content ?? "", /provider unavailable/);
-	assert.deepEqual(woken, [], "an error notice never starts a turn");
+	assert.deepEqual(parentInbox, [], "no duplicate silent error notice");
 });
 
 test("a notice for a busy parent waits for its run to settle, then is appended without a turn", async () => {
@@ -725,4 +725,72 @@ test("an abort while idle does not mask an error in a later run", async () => {
 	session.messages.push({ role: "assistant", stopReason: "error", errorMessage: "provider unavailable" });
 	session.emit("agent_settled");
 	assert.equal(engine.get("beta")?.stopReason, "error");
+});
+
+test("a terminal error uses ordinary steering for idle and busy child parents", async () => {
+	for (const busy of [false, true]) {
+		const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
+		const root: RoutedAgentMessage[] = [];
+		withMain(engine, root);
+		const sessions = new Map<string, FakeSession>();
+		const spawner = createSpawner({ engine,
+			resolveModel: () => ({ provider: "t", id: "m", model: {} }),
+			createSession: async (spec) => {
+				const session = new FakeSession(); sessions.set(spec.name, session); return { session };
+			},
+		});
+		await spawner.spawnAgent({ name: "lead", systemPrompt: "r" }, "main");
+		await spawner.spawnAgent({ name: "child", systemPrompt: "r" }, "lead");
+		const parent = sessions.get("lead")!;
+		parent.isStreaming = busy;
+		sessions.get("child")!.messages.push({ role: "assistant", stopReason: "error", errorMessage: "failed" });
+		sessions.get("child")!.emit("agent_settled");
+		assert.equal(parent.delivered.length, 1);
+		assert.equal(parent.lastDeliverAs, "steer");
+		assert.equal(parent.delivered[0]?.parts[0]?.actionable, true);
+		assert.equal(parent.appended.length, 0);
+		assert.equal(root.length, 0, "only the direct parent receives the child failure");
+	}
+});
+
+test("restoring an errored transcript never synthesizes or routes an error", () => {
+	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
+	const delivered: RoutedAgentMessage[] = [];
+	const appended: RoutedAgentMessage[] = [];
+	withMain(engine, delivered, appended);
+	const session = new FakeSession();
+	session.messages.push({ role: "assistant", stopReason: "error", errorMessage: "old failed run" });
+	const spawner = createSpawner({ engine, resolveModel: () => undefined,
+		createSession: async () => ({ session }),
+	});
+	spawner.restoreAgent({ name: "restored", spawnedBy: "main", depth: 1, model: "test/m", systemPrompt: "r",
+		sessionFile: "/tmp/old.jsonl", session, pausedMidTurn: true,
+	});
+	engine.pause("restore");
+	assert.equal(delivered.length, 0);
+	assert.equal(engine.events.filter((e) => e.type === "error").length, 0);
+	assert.equal(appended.length, 1, "only the silent restore pause is announced");
+	assert.match(appended[0]?.parts[0]?.content ?? "", /paused by restore/);
+	assert.equal(session.messages.length, 1);
+});
+
+test("recovered retries, handled tool failures, aborts and truncation do not route terminal errors", async () => {
+	for (const outcome of ["stop", "aborted", "length"]) {
+		const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
+		const delivered: RoutedAgentMessage[] = [];
+		withMain(engine, delivered);
+		const session = new FakeSession();
+		const spawner = createSpawner({ engine, resolveModel: () => ({ provider: "t", id: "m", model: {} }),
+			createSession: async () => ({ session }),
+		});
+		await spawner.spawnAgent({ name: "worker", systemPrompt: "r" }, "main");
+		session.emit("agent_start");
+		session.messages.push({ role: "assistant", stopReason: "error", errorMessage: "retryable" });
+		session.emit("agent_end");
+		session.messages.push({ role: "toolResult", isError: true, content: "handled tool failure" });
+		session.messages.push({ role: "assistant", stopReason: outcome });
+		session.emit("agent_settled");
+		assert.equal(delivered.length, 0);
+		assert.equal(engine.events.filter((e) => e.type === "error").length, 0);
+	}
 });

@@ -1,11 +1,13 @@
 /**
  * Who learns what happened to an agent's children, and what they are told. Pure decision; the
- * engine delivers the notices silently (Functional Core, Imperative Shell).
+ * engine delivers control notices silently and routes terminal errors as active input
+ * (Functional Core, Imperative Shell).
  *
  * The spawn tree is the ownership structure: a child exists to serve its spawner, so the direct
  * parent is the one agent whose picture of its work goes stale when the child is paused,
  * resumed, killed or breaks. Telling it keeps that picture true (The Map Is Not the Territory)
- * without waking it: a notice is a fact for its next turn, not a call to act.
+ * with facts for its next turn: controls do not wake it; terminal errors request ordinary
+ * delivery so its parent can respond, without bypassing pause.
  */
 
 /** A child of `parent` that a lifecycle change hit directly. */

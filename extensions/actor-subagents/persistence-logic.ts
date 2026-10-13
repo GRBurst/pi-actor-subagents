@@ -38,7 +38,7 @@ function assistantToolCalls(m: RawMessage): { id: string; name: string }[] {
  * tool calls and a normal stop reason. Everything else means it was mid-turn (trailing
  * toolResult the model still owes a reply to, dangling tool calls, or aborted/error) →
  * pausedMidTurn, so resume re-triggers it.
- * Lifecycle notices are skipped: they are appended silently (spawner.ts `append`) to a settled
+ * Silent lifecycle notices are skipped (actionable scheduler errors are not): they are appended silently (spawner.ts `append`) to a settled
  * session, so a trailing notice is not input the agent owes a reply to.
  */
 export function deriveStatus(messages: RawMessage[]): "idle" | "pausedMidTurn" {

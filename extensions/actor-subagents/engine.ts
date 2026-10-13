@@ -544,17 +544,19 @@ export class Engine {
 				bufferedMessages += inbox.length;
 				// KISS + Inversion: one atomic batch preserves every message and avoids racing
 				// several idle-session starts, which can accept the first prompt and drop the rest.
-				void rec.handle.deliver(mergeRoutedAgentMessages(inbox));
+				void rec.handle.deliver(mergeRoutedAgentMessages(inbox)).catch((error) =>
+					this.reportError(rec.name, error instanceof Error ? error.message : String(error)),
+				);
 			}
 		}
 
 		return { results, affected: released.map((rec) => rec.name), interrupted, bufferedMessages };
 	}
 
-	async route(from: string, to: string, content: string): Promise<RouteResult> {
+	async route(from: string, to: string, content: string, actionable?: true): Promise<RouteResult> {
 		const target = this.agents.get(to);
 		if (!target) return { outcome: "failed", reason: `unknown agent '${to}'` };
-		const message = createRoutedAgentMessage(from, content);
+		const message = createRoutedAgentMessage(from, content, actionable);
 		// One tail for both outcomes: a paused target parks the message, a live one takes it.
 		// Everything after that (edge count, activity, feed event) is identical, so it is written once.
 		// The pause state is read ONCE, before the delivery await, and the reported outcome comes from
@@ -682,14 +684,23 @@ export class Engine {
 	/** Tell the parents what a lifecycle change did to their children (lifecycle-notice.ts decides). */
 	private announce(change: LifecycleChange): void {
 		const notices = lifecycleNotices(change, new Set(this.agents.keys()), new Date());
-		for (const { to, content } of notices) this.notify(to, createRoutedAgentMessage(SCHEDULER, content));
+		for (const { to, content } of notices) {
+			if (change.kind === "error") {
+				// KISS: errors use ordinary routing, including steering and paused/stopping buffers.
+				// A real delivery failure is the parent's own error, never a replay of the child's.
+				void this.route(SCHEDULER, to, content, true).catch((error) =>
+					this.reportError(to, error instanceof Error ? error.message : String(error)),
+				);
+			} else this.notify(to, createRoutedAgentMessage(SCHEDULER, content));
+		}
 	}
 
 	/**
 	 * Hand `name` a message it reads at its next turn, without starting one. A running (or handed)
 	 * turn must not receive it — Pi would append it mid-run, possibly between a tool call and its
-	 * result — so it waits in the agent's notice queue until flushNotices. A paused agent is idle
-	 * and takes it at once: notices are facts, not traffic, and do not belong in the paused inbox.
+	 * result — so it waits in the agent's notice queue until flushNotices. Pause does not bypass
+	 * that busy gate. Once not busy, a paused recipient can take a silent append: control notices
+	 * are facts, not active traffic, and do not belong in the paused inbox.
 	 */
 	notify(name: string, message: RoutedAgentMessage): void {
 		const rec = this.agents.get(name);
@@ -707,8 +718,8 @@ export class Engine {
 		try {
 			rec.handle.append(mergeRoutedAgentMessages(notices));
 		} catch {
-			/* A notice is a copy of state the pull tools (list_subagents, subagent_history) also show,
-			   so losing one to a dead session costs nothing that cannot be looked up. */
+			/* Silent control notices are best-effort: a dead session may lose one, including a kill
+			   fact that current-state pull tools cannot reconstruct. No retry or turn is requested. */
 		}
 	}
 
