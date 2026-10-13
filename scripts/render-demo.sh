@@ -14,8 +14,9 @@ trap cleanup EXIT
 mkdir "$temporary/agent"
 printf '%s\n' '{"theme":"dark"}' > "$temporary/agent/settings.json"
 # A private tmux server and Pi agent directory leave the user's sessions and settings untouched.
+# Force truecolor, including Chalk's bold styles, independently of inherited CI color policies.
 tmux -S "$socket" -f /dev/null new-session -d -x 124 -y 52 -c "$PWD" \
-  "env -u PI_PACKAGE_DIR PI_CODING_AGENT_DIR='$temporary/agent' PI_OFFLINE=1 COLORTERM=truecolor $pi_command --no-session --no-tools --no-context-files --no-extensions --no-skills --no-prompt-templates --no-themes -e extensions/actor-subagents/index.ts -e scripts/demo.ts" \; set-option -g remain-on-exit on
+  "env -u PI_PACKAGE_DIR -u NO_COLOR PI_CODING_AGENT_DIR='$temporary/agent' PI_OFFLINE=1 COLORTERM=truecolor FORCE_COLOR=3 $pi_command --no-session --no-tools --no-context-files --no-extensions --no-skills --no-prompt-templates --no-themes -e extensions/actor-subagents/index.ts -e scripts/demo.ts" \; set-option -g remain-on-exit on
 wait_for_screen() {
   for attempt in $(seq 1 80); do
     tmux -S "$socket" capture-pane -p > "$temporary/screen.txt"
