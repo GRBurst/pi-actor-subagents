@@ -75,7 +75,7 @@ export function agentStatus(r: StatusInputs): AgentStatus {
 
 /**
  * The short status label for every table and column (TUI roster, panel roster, list_subagents):
- * spawning · paused · thinking · writing · tool:<name> · idle · error · truncated.
+ * spawning · paused · thinking · writing · <tool name> (or tool when unknown) · idle · error · truncated.
  * Causes are left out so a column stays narrow and scannable; formatStatusDetail adds them.
  */
 export function formatStatus(s: AgentStatus): string {
@@ -85,7 +85,7 @@ export function formatStatus(s: AgentStatus): string {
 		case "paused":
 			return "paused";
 		case "working":
-			return s.phase === "tool" ? (s.tool ? `tool:${s.tool}` : "tool") : s.phase;
+			return s.phase === "tool" ? s.tool || "tool" : s.phase;
 		case "idle":
 			return s.outcome ?? "idle";
 	}

@@ -114,7 +114,7 @@ export function agentDetailLines(status: AgentStatus, errorReason: string | unde
 
 /**
  * Scheduler state line, shown below the roster (panel) and footer: how many agents work and how
- * many are paused. The per-agent phase (thinking/tool:.../paused) lives in the rows.
+ * many are paused. The per-agent phase (thinking/<tool name>/paused) lives in the rows.
  */
 export function swarmStateLine(runningCount: number, pausedCount: number): string {
 	const activity = runningCount > 0 ? `${runningCount} working` : "idle";

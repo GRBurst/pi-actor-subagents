@@ -209,9 +209,10 @@ test("formatRoster: collapse order under narrowing width is targets → custom �
 	assert.doesNotMatch(at(22), /ETA/);
 	assert.match(at(22), /opus/);
 	// model last — only the protected columns (name + system status) survive
-	assert.doesNotMatch(at(16), /opus/);
-	assert.match(at(16), /tool:bash/);
-	assert.match(at(16), /agent/);
+	assert.doesNotMatch(at(11), /opus/);
+	assert.match(at(11), /\bbash\b/);
+	assert.doesNotMatch(at(200), /tool:/);
+	assert.match(at(11), /agent/);
 });
 
 test("formatRoster: custom status capped at 32 with a trailing ellipsis", () => {

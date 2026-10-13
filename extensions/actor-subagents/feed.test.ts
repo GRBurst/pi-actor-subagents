@@ -90,14 +90,15 @@ test("formatSnapshot omits the ETA when etaTs is unset", () => {
 	assert.doesNotMatch(out, /ETA/);
 });
 
-test("formatSnapshot renders fine-grained activity (writing / tool:name)", () => {
+test("formatSnapshot renders fine-grained activity (writing / tool name)", () => {
 	const agents = [
 		rec({ name: "w", activity: "writing" }),
 		rec({ name: "t", activity: "tool", currentTool: "bash" }),
 	];
 	const out = snapshot(agents, "main");
 	assert.match(out, /writing/);
-	assert.match(out, /tool:bash/);
+	assert.match(out, /\bbash\b/);
+	assert.doesNotMatch(out, /tool:/);
 });
 
 test("formatSnapshot shows pending agents as spawning (not idle) with queue count", () => {
@@ -168,7 +169,7 @@ test("formatMulticastResult distinguishes delivered, paused-buffered, and failed
 			{ target: "b", outcome: "buffered", status: { kind: "paused", by: "user" } },
 			{ target: "x", outcome: "failed", reason: "unknown agent 'x'" },
 		]),
-		"sent to a (tool:bash) · buffered for b (paused by user) · failed: x: unknown agent 'x'",
+		"sent to a (bash) · buffered for b (paused by user) · failed: x: unknown agent 'x'",
 	);
 	assert.equal(formatMulticastResult([]), "error: no targets");
 });

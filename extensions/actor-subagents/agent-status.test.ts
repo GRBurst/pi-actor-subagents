@@ -13,6 +13,11 @@ test("agentStatus: spawning and paused take precedence over the turn phase", () 
 		phase: "writing",
 		tool: undefined,
 	});
+	assert.deepEqual(agentStatus({ activity: "tool", currentTool: "bash" }), {
+		kind: "working",
+		phase: "tool",
+		tool: "bash",
+	});
 });
 
 test("agentStatus: idle carries the terminal outcome (error, truncated) of the last turn", () => {
@@ -34,8 +39,9 @@ test("formatStatus renders the short label for every status, without causes", ()
 	assert.equal(formatStatus({ kind: "paused", by: "user", holder: "lead" }), "paused");
 	assert.equal(formatStatus({ kind: "working", phase: "thinking" }), "thinking");
 	assert.equal(formatStatus({ kind: "working", phase: "writing" }), "writing");
-	assert.equal(formatStatus({ kind: "working", phase: "tool", tool: "bash" }), "tool:bash");
+	assert.equal(formatStatus({ kind: "working", phase: "tool", tool: "bash" }), "bash");
 	assert.equal(formatStatus({ kind: "working", phase: "tool" }), "tool");
+	assert.equal(formatStatus({ kind: "working", phase: "tool", tool: "" }), "tool");
 	assert.equal(formatStatus({ kind: "idle" }), "idle");
 	assert.equal(formatStatus({ kind: "idle", outcome: "error" }), "error"); // the reason never enters the status
 	assert.equal(formatStatus({ kind: "idle", outcome: "truncated" }), "truncated");
@@ -47,6 +53,7 @@ test("formatStatusDetail adds the pause cause; other statuses are their short la
 		formatStatusDetail({ kind: "paused", by: "user", holder: "lead" }),
 		"paused (held by lead, paused by user)",
 	);
-	assert.equal(formatStatusDetail({ kind: "working", phase: "tool", tool: "bash" }), "tool:bash");
+	assert.equal(formatStatusDetail({ kind: "working", phase: "tool", tool: "bash" }), "bash");
+	assert.equal(formatStatusDetail({ kind: "working", phase: "tool" }), "tool");
 	assert.equal(formatStatusDetail({ kind: "idle", outcome: "error" }), "error");
 });
