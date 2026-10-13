@@ -19,7 +19,7 @@ test("the npm package contains the extension and README resources, not developme
       .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
       .map((name) => `extensions/actor-subagents/${name}`);
     // An exact allowlist also guards against accidentally publishing .corral session metadata.
-    assert.deepEqual(actual, ["package.json", "README.md", "LICENSE", "DESIGN.md", "docs/subagents.svg", "docs/settings.md", "docs/publishing.md", ...source].sort());
+    assert.deepEqual(actual, ["package.json", "README.md", "LICENSE", "DESIGN.md", "docs/subagents.svg", "docs/publishing.md", ...source].sort());
   } finally {
     rmSync(cache, { recursive: true, force: true });
   }

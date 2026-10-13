@@ -71,7 +71,6 @@ Extension paths below are relative to `extensions/actor-subagents/`.
 Repository-level paths:
 
 - `README.md`: purpose, installation, demo, tools, configuration, and coordination
-- `docs/settings.md`: user settings and child-extension capability policy
 - `docs/subagents.svg`: editable terminal capture generated from the real panel
 - `docs/publishing.md`, `.github/workflows/ci.yml`: npm Trusted Publishing setup and release workflow
 - `scripts/publish.ts`, `scripts/*.test.ts`: release policy, real package-content checks, and demo invariants

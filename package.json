@@ -10,7 +10,7 @@
     "url": "git+https://github.com/fdietze/pi-actor-subagents.git"
   },
   "type": "module",
-  "files": ["extensions/actor-subagents", "docs/subagents.svg", "docs/settings.md", "docs/publishing.md", "DESIGN.md"],
+  "files": ["extensions/actor-subagents", "docs/subagents.svg", "docs/publishing.md", "DESIGN.md"],
   "pi": {
     "extensions": ["extensions/actor-subagents/index.ts"]
   },
