@@ -10,6 +10,7 @@ export function normalizeTerminalColors(input: string, foreground: string, backg
   let bg = defaultBg;
   const colors = () => `\x1b[${[...fg, ...bg].join(";")}m`;
   // The Map Is Not the Territory: keep the terminal's color semantics, not the converter's resets.
+  // oxlint-disable-next-line no-control-regex -- ANSI escape sequences are the input format.
   return colors() + input.replace(/\x1b\[([\d;]*)m|\n/g, (_sequence, parameters: string | undefined, offset: number) => {
     // A trailing newline terminates the capture; it does not begin another terminal row.
     if (parameters === undefined) return "\n" + (offset === input.length - 1 ? "" : colors());
