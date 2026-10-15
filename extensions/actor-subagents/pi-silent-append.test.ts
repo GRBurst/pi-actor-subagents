@@ -56,12 +56,18 @@ test("installed Pi: active scheduler errors prompt idle parents and steer busy p
 	t.after(() => finish());
 	let prompted: unknown;
 	const steered: unknown[] = [];
-	session.agent.prompt = async (message) => { prompted = message; await pending; };
+	let onPrompt!: () => void;
+	const started = new Promise<void>((resolve) => { onPrompt = resolve; });
+	session.agent.prompt = async (message) => { prompted = message; onPrompt(); await pending; };
 	session.agent.steer = (message) => void steered.push(message);
 	const error = toCustomAgentMessage(createRoutedAgentMessage("scheduler", "child failed", true));
 	const idleRun = session.sendCustomMessage(error, { triggerTurn: true, deliverAs: "steer" });
+	// Pi may await run setup before reaching the provider-driving entry point.
+	await started;
 	assert.equal(session.isStreaming, true, "idle message entered the run path");
-	assert.deepEqual(prompted, { role: "custom", ...error, timestamp: (prompted as { timestamp: number }).timestamp });
+	assert.ok(Array.isArray(prompted));
+	const custom = prompted.find((message: { role: string }) => message.role === "custom");
+	assert.deepEqual(custom, { role: "custom", ...error, timestamp: custom.timestamp });
 	await session.sendCustomMessage(error, { triggerTurn: true, deliverAs: "steer" });
 	assert.equal(steered.length, 1, "busy message uses ordinary steering");
 	assert.equal(session.messages.length, 0, "no duplicate silent append outside the agent path");

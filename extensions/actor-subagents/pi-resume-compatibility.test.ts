@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import type { AssistantMessage, Message, Model, ToolResultMessage } from "@earendil-works/pi-ai";
+import { normalizeContext, type AssistantMessage, type Message, type Model, type ToolResultMessage } from "@earendil-works/pi-ai";
 import { convertMessages as convertGoogleMessages } from "@earendil-works/pi-ai/api/google-shared";
 import { convertResponsesMessages } from "@earendil-works/pi-ai/api/openai-responses-shared";
 import { transformMessages } from "@earendil-works/pi-ai/api/transform-messages";
@@ -100,10 +100,10 @@ for (const fixture of cases) {
 			if (previousProjection) assert.deepEqual(projected, previousProjection);
 			previousProjection = projected;
 			// Public installed adapter conversions independently exercise the provider boundary.
-			const responses = convertResponsesMessages(model, { messages: llm }, new Set(["openai"]));
+			const responses = convertResponsesMessages(model, normalizeContext({ messages: llm }), new Set(["openai"]));
 			assert.deepEqual(responses.filter((m) => m.type === "function_call_output").map((m) => m.call_id),
 				projected.filter((m) => m.role === "toolResult").map((m) => m.toolCallId));
-			const google = convertGoogleMessages({ ...model, api: "google-generative-ai", provider: "google", compat: undefined }, { messages: llm });
+			const google = convertGoogleMessages({ ...model, api: "google-generative-ai", provider: "google", compat: undefined }, normalizeContext({ messages: llm }));
 			assert.equal(google.flatMap((m) => m.parts ?? []).filter((p) => p.functionResponse).length,
 				projected.filter((m) => m.role === "toolResult").length);
 			assert.deepEqual(history, observed);
