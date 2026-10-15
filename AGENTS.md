@@ -4,7 +4,7 @@ Keep this file, `README.md`, and `DESIGN.md` true to the code whenever architect
 
 ## Setup and verification
 
-Nix pins the development tools in `flake.nix`. npm supplies the pinned Pi SDK and type packages for development and integration tests.
+Nix pins the development tools in `flake.nix`. npm supplies the pinned Pi 1.2.0 SDK and type packages for development and integration tests; the package requires Pi >=1.2.0 for native component mouse events.
 
 ```bash
 nix develop
@@ -65,7 +65,9 @@ Extension paths below are relative to `extensions/actor-subagents/`.
 - `lifecycle-notice.ts`: pure rule for who is told about a pause, resume, kill or error, and what
 - `pi-silent-append.test.ts`: installed Pi contract that a `triggerTurn: false` custom message on an idle session appends without a turn
 - `tool-timestamp.ts`: pure tool-result stamper (wall-clock start + finish times)
-- `panel.ts`, `panel-logic.ts`, `feed.ts`: interactive and textual projections
+- `roster-widget.ts`: native mouse routing from persistent roster rows to the shared panel lifecycle in `index.ts`
+- `panel.ts`, `panel-logic.ts`, `feed.ts`: interactive and textual projections; the panel keeps selection by agent identity, resolves row clicks against the last frame, and closes through the top-right `Esc` label or Escape key
+- `panel.test.ts`: selection, close hit targets, and installed Pi fullscreen mouse-dispatch contracts
 - focused `*.ts` helpers: pure domain rules; adjacent `*.test.ts` files are their tests
 
 Repository-level paths:

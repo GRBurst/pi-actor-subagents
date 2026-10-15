@@ -5,18 +5,13 @@
  * covers the tail while it is open.
  * Pattern mirrored from question.ts: the factory returns { render, handleInput, invalidate },
  * editor via new Editor(tui, theme), refresh via tui.requestRender().
- * Overlay, not a dock takeover, for one measured reason: in pi's fullscreen mode only a focused
- * overlay receives raw mouse reports in handleInput — a dock component gets keyboard bytes but
- * never wheel bytes, which the TUI routes to the chat transcript behind the panel instead
- * (see mouse-input.ts). The overlay also knows the terminal height, so the transcript is sized
- * from it rather than fixed. A wheel notch above the panel is treated as a chat gesture and
- * swallowed (the panel cannot scroll the main chat's viewport while it holds focus).
+ * Pi routes normalized mouse events with component-local coordinates to the overlay. Wheel
+ * events inside scroll the agent transcript; gestures above it remain with the main chat.
  * Transcript: the real chat components (User/Assistant/ToolExecution), kept alive per agent in a
  * TranscriptDocument so pi's own line caches apply, and scrolled by pi's ScrollView so wheel,
  * page and half-page movement behave exactly like the main chat.
  */
-import { Editor, type EditorTheme, Key, matchesKey, ScrollView, truncateToWidth } from "@earendil-works/pi-tui";
-import { isMouseReport, parseWheelEvent } from "./mouse-input.ts";
+import { Editor, type EditorTheme, Key, matchesKey, ScrollView, truncateToWidth, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import { nextInCycle } from "./next-in-cycle.ts";
 import { THINKING_LEVELS } from "./thinking-level.ts";
 import {
@@ -52,6 +47,8 @@ import {
 interface PanelDeps {
 	engine: Engine;
 	cwd: string;
+	/** Agent opened from the persistent roster; missing or removed names fall back to the first row. */
+	initialAgent?: string;
 	/** Hide assistant thinking blocks, aligned with the main UI's hideThinkingBlock setting. */
 	hideThinking: boolean;
 	/** Initial tool-output expansion, seeded from the main UI (ctx.ui.getToolsExpanded). */
@@ -89,24 +86,19 @@ const styleStatus = (theme: ThemeLike) => (label: string, tone: StatusTone) =>
 			? theme.bg("toolSuccessBg", label)
 			: theme.fg("dim", label);
 
-// Movement per gesture, taken from pi's fullscreen transcript so both scroll identically:
-// TuiAltScreen uses wheelScrollLines = 1 per notch, a page of viewport minus PAGE_SCROLL_OVERLAP,
-// and half a viewport for the half-page actions.
-const WHEEL_SCROLL_LINES = 1;
+// Keyboard paging keeps the same overlap as Pi's transcript; Pi supplies normalized wheel deltas.
 const PAGE_SCROLL_OVERLAP = 4;
 
 export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: ThemeLike, kb: KeybindingsLike, done: () => void) {
-	let selectedIndex = 0;
+	let selection = deps.initialAgent;
+	let renderedNames: string[] = [];
+	let closeStart = Number.POSITIVE_INFINITY;
 	// Tool-output expansion, seeded from main (ctrl+o). Toggled in-panel and pushed back to main.
 	let toolsExpanded = deps.toolsExpanded;
 	let hasAbove = false;
 	let hasBelow = false;
 	// Viewport of the last render; the scroll keys need it to move by pages like pi does.
 	let lastViewport = 1;
-	// Top screen row of the last rendered frame. The panel is bottom-anchored (flush to the terminal
-	// bottom), so it spans rows panelTopRow..bottom; a wheel notch ABOVE panelTopRow is aimed at the
-	// main chat still visible above the panel.
-	let panelTopRow = 0;
 	let unsubView: (() => void) | undefined;
 
 	const editorTheme: EditorTheme = {
@@ -130,13 +122,24 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 		orderAgents(deps.engine.list(), deps.engine.getMessageMatrix()).filter((o) => o.agent.name !== "main");
 	const agents = () => ordered().map((o) => o.agent);
 	const refresh = () => tui.requestRender();
-	const selectedName = () => agents()[selectedIndex]?.name;
+	// Selection is an identity, not a row number: traffic can reorder siblings while the panel is open.
+	const selectedName = () => {
+		const current = agents();
+		// Persist the fallback too: later traffic must not silently change the human's target.
+		if (!current.some((a) => a.name === selection)) selection = current[0]?.name;
+		return selection;
+	};
+	const selectedIndex = () => agents().findIndex((a) => a.name === selectedName());
 
-	// Subscribe to the selected agent's view so streaming updates live. The transcript itself is
-	// read from the view at render time, so the listener only has to ask for a frame.
+	// Subscribe to the selected agent's view so streaming updates live. Rebind on render too,
+	// because a removed agent may fall back to another identity without a selection gesture.
+	let boundView: ReturnType<typeof agents>[number]["view"];
 	const rebindView = () => {
+		const view = agents()[selectedIndex()]?.view;
+		if (view === boundView) return;
 		unsubView?.();
-		unsubView = agents()[selectedIndex]?.view?.subscribe(() => refresh());
+		boundView = view;
+		unsubView = view?.subscribe(() => refresh());
 	};
 	rebindView();
 
@@ -199,7 +202,7 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 
 	/** Scroll the selected agent's transcript, in pi's units (positive = towards the newest). */
 	const scrollBy = (lines: number) => {
-		const view = agents()[selectedIndex]?.view;
+		const view = agents()[selectedIndex()]?.view;
 		if (!view) return;
 		documentFor(view).scroll.scrollBy(lines);
 		refresh();
@@ -232,7 +235,7 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 	// blocking input on it would freeze the panel; the notice line reports the outcome when it
 	// lands (the roster row shows the new model@level either way).
 	const retune = (spec: { model?: string; thinkingLevel?: string }) => {
-		const rec = agents()[selectedIndex];
+		const rec = agents()[selectedIndex()];
 		if (!rec) return;
 		void deps.setAgentModel({ name: rec.name, ...spec }).then((result) => {
 			notice = result.msg;
@@ -241,7 +244,7 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 	};
 
 	const cycleModel = (direction: 1 | -1) => {
-		const rec = agents()[selectedIndex];
+		const rec = agents()[selectedIndex()];
 		if (!rec) return;
 		const next = nextInCycle(deps.listModels(), rec.model, direction);
 		if (!next) {
@@ -253,7 +256,7 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 	};
 
 	const cycleThinking = () => {
-		const rec = agents()[selectedIndex];
+		const rec = agents()[selectedIndex()];
 		if (!rec) return;
 		retune({ thinkingLevel: nextInCycle(THINKING_LEVELS, rec.thinkingLevel, 1) });
 	};
@@ -268,7 +271,7 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 			...lines,
 			...Array.from({ length: Math.max(0, viewport - lines.length) }, () => ""),
 		];
-		const rec = agents()[selectedIndex];
+		const rec = agents()[selectedIndex()];
 		if (!rec?.view) {
 			hasAbove = false;
 			hasBelow = false;
@@ -301,37 +304,38 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 		done();
 	};
 
+	const select = (name: string | undefined) => {
+		if (name === selectedName()) return;
+		selection = name;
+		notice = undefined;
+		rebindView();
+		refresh();
+	};
+
 	return {
-		handleInput(data: string): void {
-			// Mouse first, and every report is consumed here: as a focused overlay the panel gets
-			// press/drag/motion reports too, and letting one reach the editor would type the raw
-			// escape sequence into the chatbox. Only the wheel does anything (scroll the transcript),
-			// with the same movement per notch as pi's own transcript.
-			if (isMouseReport(data)) {
-				const wheel = parseWheelEvent(data);
-				// Only scroll the agent transcript for a notch OVER the panel. A notch above it is over
-				// the main chat still visible above the bottom-anchored panel — swallow it (still consumed,
-				// so it never reaches the chatbox), but do not scroll: the panel cannot drive the main
-				// chat's viewport, and scrolling agents for a chat-aimed gesture was the surprising bug.
-				if (wheel && wheel.y >= panelTopRow) scrollBy(wheel.direction * WHEEL_SCROLL_LINES);
-				return;
+		handleMouse(event: TuiMouseEvent) {
+			if (event.type === "wheel") scrollBy(event.wheelDelta ?? 0);
+			if (event.type === "click" && event.button === "left") {
+				if (event.y === 0 && event.x >= closeStart) close();
+				else {
+					const name = renderedNames[event.y - 1];
+					if (name && agents().some((a) => a.name === name)) select(name);
+				}
 			}
+			// Claim presses so Pi synthesizes clicks only after a release without dragging.
+			return { handled: true };
+		},
+		handleInput(data: string): void {
 			if (matchesKey(data, Key.escape)) {
 				close();
 				return;
 			}
 			if (matchesKey(data, Key.up)) {
-				selectedIndex = moveSelection(selectedIndex, -1, agents().length);
-				notice = undefined;
-				rebindView();
-				refresh();
+				select(agents()[moveSelection(selectedIndex(), -1, agents().length)]?.name);
 				return;
 			}
 			if (matchesKey(data, Key.down)) {
-				selectedIndex = moveSelection(selectedIndex, 1, agents().length);
-				notice = undefined;
-				rebindView();
-				refresh();
+				select(agents()[moveSelection(selectedIndex(), 1, agents().length)]?.name);
 				return;
 			}
 			// The keys that retune YOUR model in the main chat retune the SELECTED AGENT here.
@@ -373,7 +377,7 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 			if (kb.matches(data, "app.tools.expand")) {
 				toolsExpanded = !toolsExpanded;
 				deps.setToolsExpanded(toolsExpanded); // keep main in sync
-				const view = agents()[selectedIndex]?.view;
+				const view = agents()[selectedIndex()]?.view;
 				if (view) documentFor(view).doc.setToolsExpanded(toolsExpanded);
 				refresh();
 				return;
@@ -382,10 +386,15 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 			refresh();
 		},
 		render(width: number): string[] {
+			rebindView();
 			const lines: string[] = [];
 			const running = deps.engine.list().filter((a) => deps.engine.status(a).kind === "working").length;
 			const header = `─ subagents · ${agents().length}/${deps.engine.maxAgents} agents · ${running} running `;
-			lines.push(theme.fg("accent", truncateToWidth(header.padEnd(width, "─"), width)));
+			const closeLabel = truncateToWidth("Esc", width, "");
+			closeStart = width - visibleWidth(closeLabel);
+			const title = truncateToWidth(header, closeStart, "");
+			lines.push(theme.fg("accent", title + "─".repeat(closeStart - visibleWidth(title)) + closeLabel));
+			renderedNames = agents().map((a) => a.name);
 			const styler = styleStatus(theme);
 			const matrix = deps.engine.getMessageMatrix();
 			// The matrix is historical; only live names may appear in the targets column.
@@ -405,7 +414,7 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 				width,
 				{
 					styleStatus: styler,
-					selectedIndex,
+					selectedIndex: selectedIndex(),
 					// Selection is a full-row highlight instead of a cursor glyph, so the roster starts
 					// flush left and no width is spent on an indent column.
 					styleSelected: (line) => theme.bg("selectedBg", line.padEnd(width)),
@@ -416,7 +425,7 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 			// Swarm activity below the list — one source of truth in panel-logic.
 			const stateLine = swarmStateLine(running, deps.engine.pausedAgents().length);
 			lines.push(theme.bg("selectedBg", stateLine));
-			const selected = agents()[selectedIndex];
+			const selected = agents()[selectedIndex()];
 			if (selected) {
 				// truncateToWidth: the wrap counts UTF-16 units, wide glyphs could still overflow a row.
 				const status = deps.engine.status(selected);
@@ -448,9 +457,6 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 							),
 						),
 			];
-			// Feed the wheel router the panel's top screen row (bottom-anchored: terminal rows minus
-			// height). A notch above it is over the main chat still visible above the panel.
-			panelTopRow = (process.stdout.rows ?? 30) - out.length;
 			return out;
 		},
 		invalidate(): void {

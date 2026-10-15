@@ -10,6 +10,7 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   type ExtensionAPI,
+  type ExtensionUIContext,
   getAgentDir,
   ModelRegistry,
   ModelRuntime,
@@ -43,6 +44,7 @@ import {
   swarmStateLine,
 } from "./panel-logic.ts";
 import { createSubagentsPanel } from "./panel.ts";
+import { createRosterWidget } from "./roster-widget.ts";
 import {
   deriveStatus,
   type RawMessage,
@@ -361,19 +363,7 @@ export default function subagents(pi: ExtensionAPI) {
   // The UI is only available via ctx.ui (ExtensionUIContext), not on `pi`.
   // We cache the reference from session_start so we can update the footer from
   // engine events too (outside a handler ctx).
-  type UI = {
-    setStatus(key: string, text: string | undefined): void;
-    setWidget(
-      key: string,
-      content: string[] | undefined,
-      opts?: { placement?: "aboveEditor" | "belowEditor" },
-    ): void;
-    theme: {
-      fg(color: string, s: string): string;
-      bg(color: string, s: string): string;
-    };
-  };
-  let ui: UI | undefined;
+  let ui: ExtensionUIContext | undefined;
   // Cache the main context as a VALUE — never hold the ctx itself (it goes stale after a
   // turn/reload; calling a cached ctx crashes pi with "stale ctx").
   const captureMainContext = (c: {
@@ -422,56 +412,59 @@ export default function subagents(pi: ExtensionAPI) {
       // Only show background agents ('main' = the chat itself, redundant); the spawn-tree depth
       // of each entry becomes the row indent, with main's children as the visible roots.
       const background = agents.filter((o) => o.agent.name !== "main");
-      const theme = ui.theme;
-      const styler = (label: string, tone: StatusTone) =>
-        tone === "error"
-          ? theme.bg("toolErrorBg", label)
-          : tone === "busy"
-            ? theme.bg("toolSuccessBg", label)
-            : theme.fg("dim", label);
-      const matrix = engine.getMessageMatrix();
-      // The matrix is historical; only live names may appear in the targets column.
-      const live = engine.liveNames();
-      // EVERY widget line must fit the live terminal width or pi's renderer throws
-      // ("Rendered line N exceeds terminal width"). pi checks against this.terminal.columns,
-      // so truncate each composed line to process.stdout.columns (NOT a hardcoded width —
-      // that crashed on narrower terminals). truncateToWidth is ANSI/unicode aware.
-      const width = process.stdout.columns ?? 80;
-      const rosterLines = formatRoster(
-        background.map(({ agent: a, depth }) => ({
-          name: a.name,
-          depth: rosterDepth(depth),
-          model: a.model,
-          thinkingLevel: a.thinkingLevel,
-          context: formatContext(a.view?.getContextUsage()),
-          status: engine.status(a),
-          customStatus: a.customStatus,
-          etaTs: a.etaTs,
-          targets: formatSendTargets(matrix, a.name, live),
-        })),
-        width,
-        { styleStatus: styler },
-      ).map((line) => truncateToWidth(line, width));
-      const running = background.filter(
-        (o) => engine.status(o.agent).kind === "working",
-      ).length;
-      const stateLine = swarmStateLine(running, engine.pausedAgents().length);
-      const pauseLine = theme.bg("selectedBg", truncateToWidth(stateLine, width));
-      // Same header the /subagents panel shows, so the swarm's size and activity stay visible at
-      // a glance — not only inside the panel.
-      const header = theme.fg(
-        "accent",
-        truncateToWidth(
-          `─ subagents · ${background.length} agents · ${running} running `,
-          width,
-        ),
-      );
-      ui.setWidget(
-        "agents-roster",
-        panelOpen || background.length === 0
-          ? undefined
-          : [header, ...rosterLines, pauseLine],
-      );
+      if (panelOpen || background.length === 0) {
+        ui.setWidget("agents-roster", undefined);
+        return;
+      }
+      const widgetUi = ui;
+      ui.setWidget("agents-roster", (_tui, theme) => createRosterWidget(
+        background.map(({ agent }) => agent.name),
+        (width) => {
+          const styler = (label: string, tone: StatusTone) =>
+            tone === "error"
+              ? theme.bg("toolErrorBg", label)
+              : tone === "busy"
+                ? theme.bg("toolSuccessBg", label)
+                : theme.fg("dim", label);
+          const matrix = engine.getMessageMatrix();
+          // The matrix is historical; only live names may appear in the targets column.
+          const live = engine.liveNames();
+          // Render at Pi's supplied width: resizing and other widgets can change the available space.
+          const rosterLines = formatRoster(
+            background.map(({ agent: a, depth }) => ({
+              name: a.name,
+              depth: rosterDepth(depth),
+              model: a.model,
+              thinkingLevel: a.thinkingLevel,
+              context: formatContext(a.view?.getContextUsage()),
+              status: engine.status(a),
+              customStatus: a.customStatus,
+              etaTs: a.etaTs,
+              targets: formatSendTargets(matrix, a.name, live),
+            })),
+            width,
+            { styleStatus: styler },
+          ).map((line) => truncateToWidth(line, width));
+          const running = background.filter(
+            (o) => engine.status(o.agent).kind === "working",
+          ).length;
+          const stateLine = swarmStateLine(running, engine.pausedAgents().length);
+          const pauseLine = theme.bg("selectedBg", truncateToWidth(stateLine, width));
+          // Same header the /subagents panel shows, so the swarm's size and activity stay visible at
+          // a glance — not only inside the panel.
+          const header = theme.fg(
+            "accent",
+            truncateToWidth(
+              `─ subagents · ${background.length} agents · ${running} running `,
+              width,
+            ),
+          );
+          return [header, ...rosterLines, pauseLine];
+        },
+        (name) => {
+          void openPanel(widgetUi, name).catch((error) => widgetUi.notify(String(error), "error"));
+        },
+      ));
     } catch {
       /* ui from a stale ctx -> skip this tick, refreshes on the next handler */
     }
@@ -479,18 +472,7 @@ export default function subagents(pi: ExtensionAPI) {
 
   // Update the status on every engine event.
   const unsubscribeEngine = engine.subscribe(() => updateStatus());
-  // The roster widget hands pi fully composed lines truncated to the width they were built at,
-  // and pi re-draws those STORED lines after a resize — a line from a wider terminal then trips
-  // its "Rendered line exceeds terminal width" check. Rebuilding the widget here keeps the stored
-  // lines valid at the new width; pi only schedules its own re-render (process.nextTick), so this
-  // synchronous rebuild lands before the frame that would have thrown.
-  process.stdout.on("resize", updateStatus);
-  // Both hooks go in as ONE unit, so ownership cannot end up split between two loads.
-  const disposeHooks = () => {
-    process.stdout.off("resize", updateStatus);
-    unsubscribeEngine();
-  };
-  installProcessHooks(disposeHooks);
+  installProcessHooks(unsubscribeEngine);
 
   // Policy lives in resolve-model.ts (pure); this only binds it to the live registry.
   const resolveModel = (ref: string | undefined): ResolvedModel | undefined =>
@@ -871,7 +853,7 @@ export default function subagents(pi: ExtensionAPI) {
     // A same-version /reload must retain the singleton's live children. Real foreground
     // replacement/quit closes their runtimes but deliberately leaves roster.json intact.
     if (event.reason === "reload") return;
-    disposeProcessHooks(disposeHooks);
+    disposeProcessHooks(unsubscribeEngine);
     const previousSubDir = subDir;
     subDir = undefined;
     await engine.shutdownAll();
@@ -887,67 +869,67 @@ export default function subagents(pi: ExtensionAPI) {
     pi.registerTool(tool);
   }
 
-  // pi's fuzzy autocomplete preserves registration order when match scores tie. Register the
-  // primary command first so partial input such as /subag selects the panel, not /subagents-pause.
-  // /subagents opens a focused overlay across the BOTTOM half, its familiar home. Focus — not
-  // full-screen size — makes mouse-wheel scrolling possible: pi's fullscreen TUI consumes wheel
-  // reports for the main chat unless a focused overlay claims them (mouse-input.ts).
+  // KISS: the command and roster clicks share one panel lifecycle; the guard also covers loading.
+  const openPanel = async (panelUi: ExtensionUIContext, initialAgent?: string) => {
+    if (panelOpen) return;
+    ui = panelUi;
+    panelOpen = true;
+    updateStatus(); // hide the redundant persistent roster
+    try {
+      const hideThinking = await getHideThinking();
+      const toolsExpanded = panelUi.getToolsExpanded?.() ?? false;
+      await panelUi.custom<void>((tui, theme, kb, done) =>
+        createSubagentsPanel(
+          {
+            engine,
+            cwd,
+            initialAgent,
+            hideThinking,
+            toolsExpanded,
+            setToolsExpanded: (v) => panelUi.setToolsExpanded?.(v),
+            listModels,
+            setAgentModel: (spec) =>
+              setAgentModel("user", spec as Parameters<typeof setAgentModel>[1]),
+          },
+          tui,
+          theme,
+          // kb.matches() is inherited from pi-tui's KeybindingsManager but not
+          // visible on the pi-coding-agent subclass under tsgo bundler resolution;
+          // the runtime object carries it, so narrow to the KeybindingsLike shape
+          // the panel actually uses.
+          kb as unknown as {
+            matches(data: string, keybinding: string): boolean;
+          },
+          done,
+        ),
+        {
+          overlay: true,
+          // Bottom half: the panel covers the chat tail while open, but the older chat above stays
+          // visible. A top anchor kept the tail visible but was disorienting (the roster jumped
+          // above the conversation), so we accept covering the tail for the unsurprising position.
+          // A percentage, not a number: pi re-resolves it against the live terminal height on
+          // every render, while a number computed at open time would freeze the container at the
+          // old height across a resize. "50%" is exactly what panelRows() gives the transcript
+          // inside, so container and content stay in sync.
+          overlayOptions: {
+            anchor: "bottom-center",
+            width: "100%",
+            maxHeight: "50%",
+          },
+          // Keep keyboard input in the panel instead of the foreground editor.
+          onHandle: (handle: { focus(): void }) => handle.focus(),
+        } as never,
+      );
+    } finally {
+      panelOpen = false;
+      updateStatus(); // show the persistent roster again
+    }
+  };
+
+  // Register the primary command first so fuzzy autocomplete prefers it to the controls.
   pi.registerCommand("subagents", {
     description: "Open the subagents panel (Esc to close)",
-    handler: async (_args, ctx) => {
-      ui = ctx.ui;
-      panelOpen = true;
-      updateStatus(); // hide the redundant persistent roster
-      const hideThinking = await getHideThinking(); // align panel thinking with the main UI
-      // Seed tool-output expansion from the main UI so ctrl+o state is inherited (and synced back).
-      const toolsExpanded = ctx.ui.getToolsExpanded?.() ?? false;
-      try {
-        await ctx.ui.custom<void>((tui, theme, kb, done) =>
-          createSubagentsPanel(
-            {
-              engine,
-              cwd,
-              hideThinking,
-              toolsExpanded,
-              setToolsExpanded: (v) => ctx.ui.setToolsExpanded?.(v),
-              listModels,
-              setAgentModel: (spec) =>
-                setAgentModel("user", spec as Parameters<typeof setAgentModel>[1]),
-            },
-            tui,
-            theme,
-            // kb.matches() is inherited from pi-tui's KeybindingsManager but not
-            // visible on the pi-coding-agent subclass under tsgo bundler resolution;
-            // the runtime object carries it, so narrow to the KeybindingsLike shape
-            // the panel actually uses.
-            kb as unknown as {
-              matches(data: string, keybinding: string): boolean;
-            },
-            done,
-          ),
-          {
-            overlay: true,
-            // Bottom half: the panel covers the chat tail while open, but the older chat above stays
-            // visible. A top anchor kept the tail visible but was disorienting (the roster jumped
-            // above the conversation), so we accept covering the tail for the unsurprising position.
-            // A percentage, not a number: pi re-resolves it against the live terminal height on
-            // every render, while a number computed at open time would freeze the container at the
-            // old height across a resize. "50%" is exactly what panelRows() gives the transcript
-            // inside, so container and content stay in sync.
-            overlayOptions: {
-              anchor: "bottom-center",
-              width: "100%",
-              maxHeight: "50%",
-            },
-            // Without focus the overlay renders but the editor keeps the input — and the wheel.
-            onHandle: (handle: { focus(): void }) => handle.focus(),
-          } as never,
-        );
-      } finally {
-        panelOpen = false;
-        updateStatus(); // show the persistent roster again
-      }
-    },
+    handler: async (_args, ctx) => openPanel(ctx.ui),
   });
 
   // Every swarm control command shares the /subagents- prefix, so typing it lists the whole

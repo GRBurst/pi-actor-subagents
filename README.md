@@ -6,6 +6,8 @@ Pairs well with [pi-infinite-context](https://github.com/fdietze/pi-infinite-con
 
 ## Install
 
+Requires Pi 1.2.0 or newer.
+
 ```bash
 pi install npm:pi-actor-subagents
 ```
@@ -14,7 +16,9 @@ pi install npm:pi-actor-subagents
 
 ![Subagents panel: an implementer running tests, its reviewer exchanging messages, and a paused researcher](docs/subagents.svg)
 
-Select an agent to inspect its conversation and message it directly.
+Click an agent in the roster to open its conversation. Inside the panel, click another agent or use ↑/↓ to switch. Click **Esc** at the top right, or press Escape, to close.
+
+Mouse controls use Pi's fullscreen mode. `/subagents` and the keyboard controls also work without it. The input box messages the selected agent directly.
 
 ## Tools
 
