@@ -182,6 +182,14 @@ test("recordTurnStart aborts while paused", () => {
 	assert.match(r.reason ?? "", /paused/i);
 });
 
+test("resume re-triggers an idle agent whose turn was refused while paused", async () => {
+	const e = new Engine(caps);
+	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
+	e.pause("main");
+	assert.equal(e.recordTurnStart("a").abort, true);
+	assert.deepEqual(released(await e.resume("main")).interrupted, ["a"]);
+});
+
 test("resume lifts a pause and lets turns run again", async () => {
 	const e = new Engine({ maxAgents: 5, maxSpawnDepth: 5 });
 	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });

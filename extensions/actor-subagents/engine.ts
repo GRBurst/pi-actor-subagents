@@ -641,7 +641,12 @@ export class Engine {
 	 */
 	recordTurnStart(name: string): { abort: boolean; reason?: string } {
 		const rec = this.agents.get(name);
-		if (rec && this.isStopped(rec)) return { abort: true, reason: "agents paused" };
+		if (rec && this.isStopped(rec)) {
+			// A turn started outside the engine (e.g. an extension's sendMessage with triggerTurn) left its
+			// message in the transcript; resume must re-trigger it or the agent never reads it.
+			rec.pausedMidTurn = true;
+			return { abort: true, reason: "agents paused" };
+		}
 		if (rec) {
 			rec.turns++;
 			rec.lastActivity = Date.now();
