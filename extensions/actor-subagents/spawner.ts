@@ -139,11 +139,14 @@ function createSessionCloser(session: SessionLike, detach: () => void = () => {}
 					failure ??= error;
 				}
 			};
+			// Detach first (Correctness by Construction): the closer runs on a removed record, so no
+			// event of this dying session may reach the engine, where a re-spawned namesake would own
+			// the name.
+			await attempt(detach);
 			// Bash before abort: abort() waits for the session to go idle, which a running bash
 			// command would otherwise stretch out for as long as it takes.
 			await attempt(() => session.abortBash());
 			await attempt(() => session.abort());
-			await attempt(detach);
 			await attempt(() => session.shutdown());
 			await attempt(() => session.dispose());
 			if (failure) throw failure;
@@ -160,8 +163,8 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 	// streamingRef.msg holds the current turn's in-progress assistant message so the panel can
 	// seed it on switch (view.getStreamingMessage). The partial lives only here mid-turn.
 	//
-	// run.abortRequested records that WE aborted the current logical run (a pause, a kill, or a
-	// refused turn). The SDK can file such a run as an "error" — a provider call that fails on the
+	// run.abortRequested records that WE aborted the current logical run (a pause or a refused
+	// turn). The SDK can file such a run as an "error" — a provider call that fails on the
 	// already aborted signal after a cancelled tool — so the settled outcome of that run is
 	// "aborted": a deliberate stop must not enter the error state or notify the parent. Our own fact
 	// decides, not the SDK's wording (The Map Is Not the Territory). agent_start clears it, so an
@@ -174,16 +177,9 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 	): (() => void) => {
 		return session.subscribe((ev) => {
 			if (ev.type === "agent_start") run.abortRequested = false;
-			if (ev.type === "turn_start") {
-				const r = engine.recordTurnStart(name);
-				if (r.abort) run.abortRequested = true;
-				// Fire-and-forget, but never as an unhandled rejection: this runs inside an SDK event
-				// callback, where a rejected promise would take the whole pi process down.
-				if (r.abort)
-					void Promise.resolve(session.abort()).catch((e) =>
-						engine.reportError(name, e instanceof Error ? e.message : String(e)),
-					);
-			}
+			// The engine refuses a stopped agent's turn itself, through the agent's `handle.abort` (which marks
+			// `run.abortRequested`), so every abort it starts is tracked (engine.ts startAbort).
+			if (ev.type === "turn_start") engine.recordTurnStart(name);
 			if (ev.type === "message_start" || ev.type === "message_update") {
 				const msg = ev.message as { role?: string } | undefined;
 				if (msg?.role === "assistant") streamingRef.msg = msg;

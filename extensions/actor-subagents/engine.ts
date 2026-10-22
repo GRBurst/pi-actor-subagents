@@ -83,7 +83,7 @@ export class Engine {
 	// Graph tracking (in-memory, survives /reload via the singleton, resets on pi restart).
 	private readonly messageEdges = new Map<string, Map<string, number>>(); // from -> (to -> count)
 	private readonly caps: Caps;
-	// Aborts started by pause() and not yet finished, per agent. resume() waits for them: an abort
+	// Aborts started by startAbort() (pause, refused turn) and not yet finished, per agent. resume() waits for them: an abort
 	// that lands after the agent runs again would kill the turn resume just started.
 	private readonly aborts = new AbortTracker();
 
@@ -368,6 +368,19 @@ export class Engine {
 		return this.isAgentPaused(rec) || this.aborts.pending((name) => name === rec.name).length > 0;
 	}
 
+	/**
+	 * The one way the engine aborts an agent's session (pause, refused turn): tracked, so the agent
+	 * counts as stopped until the abort lands (`isStopped`), and a failure becomes an agent error
+	 * instead of an unhandled rejection.
+	 */
+	private startAbort(rec: AgentRecord): void {
+		this.aborts.track(
+			rec.name,
+			() => rec.handle.abort(),
+			(error) => this.reportError(rec.name, `abort failed: ${error instanceof Error ? error.message : String(error)}`),
+		);
+	}
+
 	/** The agent's status with its effective pause and its cause folded in; the only status to display. */
 	status(rec: AgentRecord): AgentStatus {
 		const holder = pauseHolder(this.agents, rec);
@@ -470,13 +483,7 @@ export class Engine {
 		const newlyPaused = this.background().filter((rec) => !before.has(rec.name) && this.isAgentPaused(rec));
 		// A set activity IS "mid-turn" — that is exactly whose work resume must re-trigger.
 		for (const rec of newlyPaused) if (rec.activity !== undefined) rec.pausedMidTurn = true;
-		for (const rec of newlyPaused) {
-			this.aborts.track(
-				rec.name,
-				() => rec.handle.abort(),
-				(error) => this.reportError(rec.name, `abort failed: ${error instanceof Error ? error.message : String(error)}`),
-			);
-		}
+		for (const rec of newlyPaused) this.startAbort(rec);
 		this.emit({ type: "pause", names: flagged.map((rec) => rec.name), by, ts: Date.now() });
 		this.announce({ kind: "paused", by, targets: flagged.map(asTarget) });
 		return { results, affected: newlyPaused.map((rec) => rec.name) };
@@ -634,24 +641,28 @@ export class Engine {
 	}
 
 	/**
-	 * Call before every background turn. abort=true => caller must call session.abort(), which is
-	 * how a paused agent is stopped: pi's SDK exposes no "do not start" hook, so the turn is
-	 * refused at its start instead.
+	 * Gate one background turn at its start; returns whether the engine refused it. pi's SDK exposes
+	 * no "do not start" hook, so a stopped agent's turn is aborted at its start instead.
+	 *
+	 * The refusal's abort goes through the same tracker as a pause's, so every abort the engine
+	 * starts makes the agent count as stopped until it lands: a resume in that window waits for it
+	 * instead of steering its nudge into the dying run.
 	 */
-	recordTurnStart(name: string): { abort: boolean; reason?: string } {
+	recordTurnStart(name: string): boolean {
 		const rec = this.agents.get(name);
-		if (rec && this.isStopped(rec)) {
-			// A turn started outside the engine (e.g. an extension's sendMessage with triggerTurn) left its
-			// message in the transcript; resume must re-trigger it or the agent never reads it.
+		if (!rec) return false;
+		if (this.isStopped(rec)) {
+			// The refused turn's input (e.g. an extension's sendMessage with triggerTurn, or a hand-off
+			// that raced a pause) is already in the transcript; resume must re-trigger it or the agent
+			// never reads it.
 			rec.pausedMidTurn = true;
-			return { abort: true, reason: "agents paused" };
+			this.startAbort(rec);
+			return true;
 		}
-		if (rec) {
-			rec.turns++;
-			rec.lastActivity = Date.now();
-		}
+		rec.turns++;
+		rec.lastActivity = Date.now();
 		this.emit({ type: "turn", name, ts: Date.now() });
-		return { abort: false };
+		return false;
 	}
 
 	/** Report an async failure (e.g. a fire-and-forget delivery turn that later threw). */

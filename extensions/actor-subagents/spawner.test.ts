@@ -139,8 +139,12 @@ test("smoke: spawn -> deliver -> reply -> pause buffers", async () => {
 
 	// a paused agent's turn is refused at its start, and its incoming mail buffers
 	engine.pause("main");
+	await new Promise((resolve) => setTimeout(resolve, 0)); // the pause's own abort lands
+	const abortedByPause = echo?.aborted ?? 0;
 	echo?.emit("turn_start");
-	assert.ok((echo?.aborted ?? 0) >= 1);
+	await new Promise((resolve) => setTimeout(resolve, 0)); // handle.abort cancels bash first
+	assert.equal(echo?.aborted, abortedByPause + 1);
+	assert.equal(engine.get("echo")?.turns, 2, "the refused turn is not counted");
 	const blocked = await engine.route("main", "echo", "again");
 	assert.equal(blocked.outcome, "buffered");
 });
@@ -553,7 +557,7 @@ test("spawn enforces max depth via spawner depth", async () => {
 	assert.match(tooDeep.msg, /depth/i);
 });
 
-test("kill closes a child session exactly once in abortBash-abort-detach-shutdown-dispose order", async () => {
+test("kill closes a child session exactly once in detach-abortBash-abort-shutdown-dispose order", async () => {
 	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
 	withMain(engine, []);
 	const session = new FakeSession();
@@ -570,7 +574,7 @@ test("kill closes a child session exactly once in abortBash-abort-detach-shutdow
 	const result = await engine.kill("main", ["child"]);
 
 	assert.deepEqual(result.affected, ["child"]);
-	assert.deepEqual(session.lifecycle, ["abortBash", "abort", "detach", "shutdown", "dispose"]);
+	assert.deepEqual(session.lifecycle, ["detach", "abortBash", "abort", "shutdown", "dispose"]);
 });
 
 test("a child killed while session creation is pending closes the orphan runtime", async () => {

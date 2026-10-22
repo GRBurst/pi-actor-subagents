@@ -14,6 +14,9 @@ const fakeHandle = (): AgentHandle => ({
 
 const caps = { maxAgents: 2, maxSpawnDepth: 2 };
 
+/** A turn start emitted by the agent's own session, as spawner.ts reports it. */
+const startTurn = (e: Engine, name: string): boolean => e.recordTurnStart(name);
+
 /** The work a resume released, without the per-target outcomes. */
 const released = ({ affected, interrupted, bufferedMessages }: EngineResumeResult) => ({ affected, interrupted, bufferedMessages });
 
@@ -169,7 +172,7 @@ test("route buffers while paused", async () => {
 test("recordTurnStart counts the agent's turns without limiting them", () => {
 	const e = new Engine({ maxAgents: 5, maxSpawnDepth: 5 });
 	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
-	for (let i = 0; i < 5; i++) assert.equal(e.recordTurnStart("a").abort, false);
+	for (let i = 0; i < 5; i++) assert.equal(startTurn(e, "a"), false);
 	assert.equal(e.get("a")?.turns, 5);
 });
 
@@ -177,17 +180,46 @@ test("recordTurnStart aborts while paused", () => {
 	const e = new Engine(caps);
 	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
 	e.pause("main");
-	const r = e.recordTurnStart("a");
-	assert.equal(r.abort, true);
-	assert.match(r.reason ?? "", /paused/i);
+	assert.equal(startTurn(e, "a"), true);
+	assert.equal(e.get("a")?.turns, 0, "a refused turn is not counted");
 });
 
 test("resume re-triggers an idle agent whose turn was refused while paused", async () => {
 	const e = new Engine(caps);
 	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
 	e.pause("main");
-	assert.equal(e.recordTurnStart("a").abort, true);
+	assert.equal(startTurn(e, "a"), true);
 	assert.deepEqual(released(await e.resume("main")).interrupted, ["a"]);
+});
+
+test("a refused turn's abort holds the next resume until it lands", async () => {
+	const e = new Engine(caps);
+	const log: string[] = [];
+	let aborts = 0;
+	let finishAbort: (() => void) | undefined;
+	e.addAgent({
+		...mainRecord(),
+		name: "a",
+		depth: 1,
+		handle: {
+			deliver: async () => void log.push("delivered"),
+			// The pause's own abort lands at once; the refused turn's abort is slow.
+			abort: () =>
+				++aborts === 1
+					? Promise.resolve()
+					: new Promise<void>((resolve) => (finishAbort = () => (log.push("aborted"), resolve()))),
+		},
+	});
+	e.pause("main", ["a"]);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(startTurn(e, "a"), true);
+	await e.route("main", "a", "correction");
+	const resumed = e.resume("main", ["a"]);
+	await new Promise((resolve) => setTimeout(resolve, 10));
+	assert.deepEqual(log, [], "the resume waits for the refused turn's abort");
+	finishAbort?.();
+	assert.deepEqual((await resumed).interrupted, ["a"]);
+	assert.deepEqual(log, ["aborted", "delivered"], "nothing is steered into the dying run");
 });
 
 test("resume lifts a pause and lets turns run again", async () => {
@@ -198,13 +230,13 @@ test("resume lifts a pause and lets turns run again", async () => {
 	assert.deepEqual(e.pausedAgents(), []);
 	assert.equal(e.events.at(-1)?.type, "resume");
 	assert.deepEqual(released(await e.resume("main")), { affected: [], interrupted: [], bufferedMessages: 0 });
-	assert.equal(e.recordTurnStart("a").abort, false);
+	assert.equal(startTurn(e, "a"), false);
 });
 
 test("resume on a live swarm is a no-op and emits nothing", async () => {
 	const e = new Engine({ maxAgents: 5, maxSpawnDepth: 5 });
 	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
-	e.recordTurnStart("a");
+	startTurn(e, "a");
 	const before = e.events.length;
 	assert.deepEqual(released(await e.resume("main")), { affected: [], interrupted: [], bufferedMessages: 0 });
 	assert.equal(e.events.length, before, "no resume event for a swarm that was never paused");
@@ -535,7 +567,7 @@ test("a route issued while the target is paused buffers and lands on resume", as
 		lastActivity: Date.now(),
 	});
 
-	assert.equal(e.recordTurnStart("explore").abort, false);
+	assert.equal(startTurn(e, "explore"), false);
 	e.pause("main");
 
 	// explore sends to exploit while the pause holds
@@ -616,8 +648,8 @@ test("pause(names) stops only the named agents; the rest keep running", async ()
 
 	assert.deepEqual(e.pause("main", ["a"]).affected, ["a"]);
 	assert.deepEqual(e.pausedAgents(), ["a"]);
-	assert.equal(e.recordTurnStart("a").abort, true);
-	assert.equal(e.recordTurnStart("b").abort, false);
+	assert.equal(startTurn(e, "a"), true);
+	assert.equal(startTurn(e, "b"), false);
 	assert.equal((await e.route("main", "a", "hi")).outcome, "buffered");
 	assert.deepEqual(await e.route("main", "b", "hi"), { outcome: "delivered" });
 	assert.deepEqual(delivered, ["b"]);
@@ -652,7 +684,7 @@ test("resume(names) releases only those agents", async () => {
 		},
 	});
 	e.addAgent({ ...mainRecord(), name: "b", depth: 1, activity: "thinking" });
-	e.recordTurnStart("a");
+	startTurn(e, "a");
 	e.pause("main");
 
 	assert.deepEqual(released(await e.resume("main", ["a"])), { affected: ["a"], interrupted: [], bufferedMessages: 0 });
@@ -793,7 +825,7 @@ test("awaitReaction reports the target as moving when it starts its turn", async
 	e.addAgent({ ...mainRecord(), name: "w", depth: 1 });
 	const pending = e.awaitReaction("w", e.events.length, 60_000);
 	e.setActivity("w", "thinking"); // the session's agent_start
-	e.recordTurnStart("w"); // emits the `turn` event the wait listens for
+	startTurn(e, "w"); // emits the `turn` event the wait listens for
 	assert.deepEqual(await withoutWaiting("awaitReaction", pending), {
 		observed: "moving",
 		status: { kind: "working", phase: "thinking", tool: undefined },
@@ -827,7 +859,7 @@ test("awaitReaction sees a reaction that happened before the wait started", asyn
 test("awaitReaction ignores a reaction that is older than the mark", async () => {
 	const e = new Engine(caps);
 	e.addAgent({ ...mainRecord(), name: "w", depth: 1 });
-	e.recordTurnStart("w"); // work the agent did BEFORE this message was routed to it
+	startTurn(e, "w"); // work the agent did BEFORE this message was routed to it
 	e.endTurn("w");
 	// The mark is what scopes the observation to one delivery: without it, a multicast whose first
 	// target is slow to route would credit this agent's earlier turn as a reaction to our message.
@@ -840,7 +872,7 @@ test("awaitReaction reports an unmoved target and ignores other agents' turns", 
 	e.addAgent({ ...mainRecord(), name: "quiet", depth: 1 });
 	e.addAgent({ ...mainRecord(), name: "noisy", depth: 1 });
 	const pending = e.awaitReaction("quiet", e.events.length, 20);
-	e.recordTurnStart("noisy"); // someone else reacting must not end this wait
+	startTurn(e, "noisy"); // someone else reacting must not end this wait
 	// "unmoved + idle" is the signal the whole wait exists for: it took the message and sat still.
 	assert.deepEqual(await pending, { observed: "unmoved", status: { kind: "idle" } });
 });
@@ -936,7 +968,7 @@ test("pausing an agent holds its whole subtree and reports every agent that stop
 	assert.deepEqual(e.pausedAgents(), ["a", "b", "c"]);
 	assert.equal(e.get("b")?.pausedMidTurn, true, "a mid-turn descendant is marked for re-triggering");
 	assert.equal(e.get("c")?.pausedMidTurn, undefined);
-	assert.equal(e.recordTurnStart("c").abort, true);
+	assert.equal(startTurn(e, "c"), true);
 	assert.equal((await e.route("main", "c", "hold")).outcome, "buffered");
 	assert.deepEqual(delivered.c, []);
 	assert.deepEqual(e.statusOf("c"), { kind: "paused", by: "main", holder: "a" });
@@ -1001,7 +1033,7 @@ test("an agent spawned under a paused ancestor comes up paused", async () => {
 		},
 	});
 	assert.deepEqual(handed, [], "the reservation buffer joins the paused inbox instead");
-	assert.equal(e.recordTurnStart("d").abort, true);
+	assert.equal(startTurn(e, "d"), true);
 	assert.deepEqual((await e.resume("main", ["a"])).affected, ["a", "b", "c", "d"]);
 	assert.deepEqual(handed, [{ parts: [{ from: "b", content: "first task" }] }]);
 });
@@ -1071,7 +1103,12 @@ test("a resumed target still held by an ancestor says so", async () => {
 test("resume waits for a pause's abort to finish before the agent runs again", async () => {
 	const e = new Engine(caps);
 	const log: string[] = [];
-	let finishAbort: (() => void) | undefined;
+	// Slow aborts, like a bash cancellation that takes a while; the refused turn below adds one.
+	const landing: (() => void)[] = [];
+	const finishAborts = () => {
+		log.push("aborted");
+		for (const land of landing.splice(0)) land();
+	};
 	e.addAgent({
 		...mainRecord(),
 		name: "w",
@@ -1081,14 +1118,7 @@ test("resume waits for a pause's abort to finish before the agent runs again", a
 			deliver: async () => {
 				log.push("delivered");
 			},
-			// A slow abort, like a bash cancellation that takes a while.
-			abort: () =>
-				new Promise<void>((resolve) => {
-					finishAbort = () => {
-						log.push("aborted");
-						resolve();
-					};
-				}),
+			abort: () => new Promise<void>((resolve) => landing.push(resolve)),
 		},
 	});
 	e.pause("main", ["w"]);
@@ -1100,25 +1130,25 @@ test("resume waits for a pause's abort to finish before the agent runs again", a
 	assert.deepEqual(e.pausedAgents(), []);
 	// A message arriving meanwhile waits too: a live delivery would start a turn the late abort kills.
 	assert.equal((await e.route("main", "w", "meanwhile")).outcome, "buffered");
-	assert.equal(e.recordTurnStart("w").abort, true, "no turn starts while our abort is in flight");
-	finishAbort?.();
+	assert.equal(startTurn(e, "w"), true, "no turn starts while our abort is in flight");
+	finishAborts();
 	assert.deepEqual((await resumed).affected, ["w"]);
 	assert.deepEqual(log, ["aborted", "delivered"], "the late abort cannot hit the resumed turn");
 });
 
 test("a turn refused while an abort is still landing is re-triggered by the pending resume", async () => {
 	const e = new Engine(caps);
-	let finishAbort: (() => void) | undefined;
+	const landing: (() => void)[] = [];
 	e.addAgent({
 		...mainRecord(),
 		name: "a",
 		depth: 1,
-		handle: { deliver: async () => {}, abort: () => new Promise<void>((resolve) => (finishAbort = resolve)) },
+		handle: { deliver: async () => {}, abort: () => new Promise<void>((resolve) => landing.push(resolve)) },
 	});
 	e.pause("main", ["a"]); // idle: pause itself does not mark it interrupted
 	const resumed = e.resume("main", ["a"]);
-	assert.equal(e.recordTurnStart("a").abort, true, "the landing abort still counts as stopped");
-	finishAbort?.();
+	assert.equal(startTurn(e, "a"), true, "the landing abort still counts as stopped");
+	for (const land of landing.splice(0)) land(); // the pause's abort and the refused turn's
 	assert.deepEqual((await resumed).interrupted, ["a"]);
 });
 
@@ -1245,10 +1275,11 @@ test("a resumed agent waits for every abort in flight, not only the newest", asy
 	aborts[1]?.();
 	await new Promise((resolve) => setTimeout(resolve, 10));
 	assert.deepEqual(log, ["abort 1"], "the older abort can still land: nothing is released");
-	assert.equal(e.recordTurnStart("w").abort, true);
+	assert.equal(startTurn(e, "w"), true, "refused, and its abort (2) is tracked too");
 	aborts[0]?.();
+	aborts[2]?.();
 	await Promise.all([first, second]);
-	assert.deepEqual(log, ["abort 1", "abort 0", "delivered"]);
+	assert.deepEqual(log, ["abort 1", "abort 0", "abort 2", "delivered"]);
 });
 
 test("the non-agent actors and the scheduler voice are reserved agent names", () => {
