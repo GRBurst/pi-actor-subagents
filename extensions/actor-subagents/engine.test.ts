@@ -1106,6 +1106,22 @@ test("resume waits for a pause's abort to finish before the agent runs again", a
 	assert.deepEqual(log, ["aborted", "delivered"], "the late abort cannot hit the resumed turn");
 });
 
+test("a turn refused while an abort is still landing is re-triggered by the pending resume", async () => {
+	const e = new Engine(caps);
+	let finishAbort: (() => void) | undefined;
+	e.addAgent({
+		...mainRecord(),
+		name: "a",
+		depth: 1,
+		handle: { deliver: async () => {}, abort: () => new Promise<void>((resolve) => (finishAbort = resolve)) },
+	});
+	e.pause("main", ["a"]); // idle: pause itself does not mark it interrupted
+	const resumed = e.resume("main", ["a"]);
+	assert.equal(e.recordTurnStart("a").abort, true, "the landing abort still counts as stopped");
+	finishAbort?.();
+	assert.deepEqual((await resumed).interrupted, ["a"]);
+});
+
 test("a failing pause abort is reported as an agent error, not thrown", async () => {
 	const e = new Engine(caps);
 	e.addAgent({

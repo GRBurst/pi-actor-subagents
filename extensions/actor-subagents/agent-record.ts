@@ -106,7 +106,8 @@ export interface AgentRecord {
 	/** Why the agent entered the error state; set with the `error` event, cleared with stopReason. */
 	errorReason?: string;
 	/**
-	 * Set when this agent was paused mid-turn (or restored from a transcript that ended mid-turn).
+	 * Set when this agent was paused mid-turn, a turn was refused while it was stopped, or it was
+	 * restored from a transcript that ended mid-turn.
 	 * Marks it for re-triggering on resume; survives the agent_end of an allowed-to-complete turn
 	 * (endTurn must NOT clear it). Cleared by resume().
 	 */

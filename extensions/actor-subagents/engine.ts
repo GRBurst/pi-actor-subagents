@@ -202,9 +202,9 @@ export class Engine {
 		rec.pending = false;
 		const buffered = rec.buffer ?? [];
 		rec.buffer = undefined;
-		// A pause can land while the session is being created. Handing the reservation's messages to
-		// a paused agent would start a turn that recordTurnStart aborts, leaving them unread with
-		// nobody to re-trigger — so they join the paused inbox, ahead of anything buffered later.
+		// A pause can land while the session is being created. The reservation's messages join the
+		// paused inbox, ahead of anything buffered later, so resume releases them as one ordered batch
+		// instead of as turns that recordTurnStart would refuse.
 		if (this.isStopped(rec)) rec.pausedInbox = [...buffered, ...(rec.pausedInbox ?? [])];
 		else for (const t of buffered) void opts.handle.deliver(t);
 		// A reservation cannot append, so notices for it waited here.
@@ -575,8 +575,7 @@ export class Engine {
 	 * Deliver panel-typed text to an agent as a real user turn (not peer traffic), reported
 	 * through the same feed and message graph as a route so the human's input stays visible.
 	 * Refuses instead of buffering: user text has no place in the paused inbox (which carries
-	 * structured peer messages), and a paused agent would abort the triggered turn and leave the
-	 * text unread with nobody to re-trigger it.
+	 * structured peer messages), and a paused agent would abort the triggered turn.
 	 */
 	deliverUser(to: string, text: string): DeliverUserResult {
 		// 'main' IS the chat the human is typing in; there is no child session to hand a turn to.
