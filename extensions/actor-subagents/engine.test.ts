@@ -441,6 +441,23 @@ test("a killed agent's late abort neither stops nor blames a re-spawned namesake
 	assert.equal(delivered.length, 1);
 });
 
+test("a killed agent's late user-turn failure does not land on a re-spawned namesake", async () => {
+	const e = new Engine(caps);
+	let failTurn: ((error: Error) => void) | undefined;
+	e.addAgent({
+		...mainRecord(),
+		name: "a",
+		depth: 1,
+		handle: { deliver: async () => {}, deliverUser: () => new Promise<void>((_, reject) => (failTurn = reject)), abort: async () => {} },
+	});
+	assert.equal(e.deliverUser("a", "hi").outcome, "delivered");
+	await e.kill("main", ["a"]);
+	e.addAgent({ ...mainRecord(), name: "a", depth: 1 });
+	failTurn?.(new Error("late"));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(e.events.some((ev) => ev.type === "error"), false);
+});
+
 test("kill refuses 'main' and unknown agents", async () => {
 	const e = new Engine(caps);
 	e.addAgent(mainRecord());

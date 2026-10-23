@@ -509,6 +509,30 @@ test("deliver failure surfaces as an engine error event", async () => {
 	assert.match((err as { reason: string }).reason, /boom/);
 });
 
+test("a killed agent's late delivery failure does not land on a re-spawned namesake", async () => {
+	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
+	withMain(engine, []);
+	let failDelivery: ((error: Error) => void) | undefined;
+	class HangingSession extends FakeSession {
+		sendAgentMessage(): Promise<void> {
+			return new Promise((_, reject) => (failDelivery = reject));
+		}
+	}
+	const sessions = [new HangingSession(), new FakeSession()];
+	const spawner = createSpawner({
+		engine,
+		resolveModel: () => ({ provider: "t", id: "m", model: {} }),
+		createSession: async () => ({ session: sessions.shift() ?? new FakeSession() }),
+	});
+	await spawner.spawnAgent({ name: "a", systemPrompt: "r" }, "main");
+	await engine.route("main", "a", "go");
+	await engine.kill("main", ["a"]);
+	await spawner.spawnAgent({ name: "a", systemPrompt: "r" }, "main");
+	failDelivery?.(new Error("late"));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(engine.events.some((e) => e.type === "error"), false);
+});
+
 test("spawn rejects unknown model", async () => {
 	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
 	const spawner = createSpawner({

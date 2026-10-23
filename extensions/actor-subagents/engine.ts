@@ -381,12 +381,18 @@ export class Engine {
 		this.aborts.track(
 			rec,
 			() => rec.handle.abort(),
-			(error) => {
-				// A killed agent's failure is not its namesake's.
-				if (this.agents.get(rec.name) !== rec) return;
-				this.reportError(rec.name, `abort failed: ${error instanceof Error ? error.message : String(error)}`);
-			},
+			(error) => this.reportFailureOf(rec, error, "abort failed"),
 		);
+	}
+
+	/**
+	 * Report a late async failure of `rec`'s runtime, unless `rec` is gone: names are reused, so a
+	 * killed agent's failure must not land on a re-spawned namesake (records are the identity).
+	 */
+	private reportFailureOf(rec: AgentRecord, error: unknown, context?: string): void {
+		if (this.agents.get(rec.name) !== rec) return;
+		const message = error instanceof Error ? error.message : String(error);
+		this.reportError(rec.name, context ? `${context}: ${message}` : message);
 	}
 
 	/** The agent's status with its effective pause and its cause folded in; the only status to display. */
@@ -559,9 +565,7 @@ export class Engine {
 				bufferedMessages += inbox.length;
 				// KISS + Inversion: one atomic batch preserves every message and avoids racing
 				// several idle-session starts, which can accept the first prompt and drop the rest.
-				void rec.handle.deliver(mergeRoutedAgentMessages(inbox)).catch((error) =>
-					this.reportError(rec.name, error instanceof Error ? error.message : String(error)),
-				);
+				void rec.handle.deliver(mergeRoutedAgentMessages(inbox)).catch((error) => this.reportFailureOf(rec, error));
 			}
 		}
 
@@ -602,9 +606,7 @@ export class Engine {
 			return { outcome: "refused", reason: `'${to}' is paused — resume it first` };
 		if (this.isStopped(target))
 			return { outcome: "refused", reason: `'${to}' is still stopping — try again in a moment` };
-		void target.handle.deliverUser(text).catch((error) => {
-			this.reportError(to, error instanceof Error ? error.message : String(error));
-		});
+		void target.handle.deliverUser(text).catch((error) => this.reportFailureOf(target, error));
 		target.lastActivity = Date.now();
 		this.countEdge("main", to);
 		this.emit({ type: "route", from: "main", to, preview: previewOf(text), buffered: false, ts: Date.now() });
@@ -711,9 +713,10 @@ export class Engine {
 			if (change.kind === "error") {
 				// KISS: errors use ordinary routing, including steering and paused/stopping buffers.
 				// A real delivery failure is the parent's own error, never a replay of the child's.
-				void this.route(SCHEDULER, to, content, true).catch((error) =>
-					this.reportError(to, error instanceof Error ? error.message : String(error)),
-				);
+				const parent = this.agents.get(to);
+				void this.route(SCHEDULER, to, content, true).catch((error) => {
+					if (parent) this.reportFailureOf(parent, error);
+				});
 			} else this.notify(to, createRoutedAgentMessage(SCHEDULER, content));
 		}
 	}

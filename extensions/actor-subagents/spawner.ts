@@ -237,6 +237,12 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 		// is marked active, so this covers the gap from hand-off to isStreaming. It cannot stick: it
 		// counts promises, and every promise settles.
 		let handoffs = 0;
+		// A late failure is reported only while this session still backs the agent: names are
+		// reused, so a killed agent's failure must not land on a re-spawned namesake.
+		const reportError = (error: unknown): void => {
+			if (engine.get(name)?.handle !== handle) return;
+			engine.reportError(name, error instanceof Error ? error.message : String(error));
+		};
 		const handOff = async (send: () => Promise<void> | void): Promise<void> => {
 			handoffs++;
 			try {
@@ -256,9 +262,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 			// to fully stop. The child-only in-memory steeringMode "all" makes several queued
 			// messages arrive at that boundary. Idle targets start a turn immediately.
 			deliver: async (message) => {
-				void handOff(() => session.sendAgentMessage(message, { deliverAs: "steer" })).catch((e) =>
-					engine.reportError(name, e instanceof Error ? e.message : String(e)),
-				);
+				void handOff(() => session.sendAgentMessage(message, { deliverAs: "steer" })).catch(reportError);
 			},
 			// A human-authored turn, steered in like peer traffic so a busy agent picks it up at its
 			// next turn boundary instead of only when it fully stops. The promise resolves with the
