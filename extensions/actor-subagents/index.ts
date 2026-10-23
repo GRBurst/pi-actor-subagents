@@ -64,7 +64,7 @@ import {
   type ResolvedModel,
   type SessionLike,
 } from "./spawner.ts";
-import { THINKING_LEVELS, type ThinkingLevel } from "./thinking-level.ts";
+import type { ThinkingLevel } from "./thinking-level.ts";
 import { timestampToolResult } from "./tool-timestamp.ts";
 
 /**

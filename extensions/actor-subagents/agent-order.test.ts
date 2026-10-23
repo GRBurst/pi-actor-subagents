@@ -65,7 +65,7 @@ test("cycle unreachable from main: main subtree first, cycle appended once each"
 test("output is always a permutation of the input (no drops/dupes)", () => {
 	const agents = [a("main", "main", 0), a("a", "main", 1), a("b", "a", 2), a("o", "ghost", 3)];
 	const out = orderAgents(agents, { a: { main: 1 }, b: { a: 2 } });
-	assert.deepEqual([...names(out)].sort(), [...agents.map((x) => x.name)].sort());
+	assert.deepEqual([...names(out)].sort(), agents.map((x) => x.name).sort());
 	assert.equal(out.length, agents.length);
 });
 
