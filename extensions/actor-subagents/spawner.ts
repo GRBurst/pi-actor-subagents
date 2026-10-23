@@ -39,12 +39,11 @@ export interface SessionLike {
 	readonly isStreaming: boolean;
 	/** Deliver a real user-role turn (the panel's chatbox types AS the human, not as a peer). */
 	sendUserMessage(text: string): Promise<void> | void;
-	abort(): Promise<void> | void;
 	/**
-	 * Cancel a running bash command. abort() alone stops the agent loop but leaves an in-flight
-	 * bash running, so every abort path pairs the two to actually stop the work.
+	 * Stop the run and wait until the session is idle. Pi's abort signal also kills a running bash
+	 * tool's process tree (pi-coding-agent core/tools/bash.js).
 	 */
-	abortBash(): Promise<void> | void;
+	abort(): Promise<void> | void;
 	/** Emit child extension session_shutdown before disposal. */
 	shutdown(): Promise<void> | void;
 	/** Permanently release the SDK session's listeners and resources. */
@@ -148,9 +147,6 @@ function createSessionCloser(session: SessionLike, detach: () => void = () => {}
 					failure ??= error;
 				}
 			};
-			// Bash before abort: abort() waits for the session to go idle, which a running bash
-			// command would otherwise stretch out for as long as it takes.
-			await attempt(() => session.abortBash());
 			await attempt(() => session.abort());
 			await attempt(() => session.shutdown());
 			await attempt(() => session.dispose());
@@ -274,16 +270,8 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 				});
 			},
 			busy: () => session.isStreaming || handoffs > 0,
-			// Bash first: abort() ends the agent loop but a tool already running keeps going, so a
-			// pause that leaves a build or test run alive would not be a pause at all. A failing bash
-			// cancel must not swallow the agent abort — stopping the loop is the part that must happen.
 			abort: async () => {
 				run.abortRequested = true;
-				try {
-					await session.abortBash();
-				} catch (e) {
-					engine.reportError(name, `bash abort failed: ${e instanceof Error ? e.message : String(e)}`);
-				}
 				await session.abort();
 			},
 		};

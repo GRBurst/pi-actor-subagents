@@ -54,9 +54,6 @@ class FakeSession implements SessionLike {
 		this.aborted++;
 		this.lifecycle.push("abort");
 	}
-	abortBash() {
-		this.lifecycle.push("abortBash");
-	}
 	async shutdown() {
 		this.lifecycle.push("shutdown");
 	}
@@ -557,7 +554,7 @@ test("spawn enforces max depth via spawner depth", async () => {
 	assert.match(tooDeep.msg, /depth/i);
 });
 
-test("kill closes a child session exactly once in detach-abortBash-abort-shutdown-dispose order", async () => {
+test("kill closes a child session exactly once in detach-abort-shutdown-dispose order", async () => {
 	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
 	withMain(engine, []);
 	const session = new FakeSession();
@@ -576,7 +573,7 @@ test("kill closes a child session exactly once in detach-abortBash-abort-shutdow
 	const result = await engine.kill("main", ["child"]);
 
 	assert.deepEqual(result.affected, ["child"]);
-	assert.deepEqual(session.lifecycle, ["detach", "abortBash", "abort", "shutdown", "dispose"]);
+	assert.deepEqual(session.lifecycle, ["detach", "abort", "shutdown", "dispose"]);
 });
 
 test("a child killed while session creation is pending closes the orphan runtime", async () => {
@@ -601,7 +598,7 @@ test("a child killed while session creation is pending closes the orphan runtime
 
 	assert.equal(result.ok, false);
 	assert.equal(engine.has("child"), false);
-	assert.deepEqual(session.lifecycle, ["abortBash", "abort", "shutdown", "dispose"]);
+	assert.deepEqual(session.lifecycle, ["abort", "shutdown", "dispose"]);
 });
 
 test("a spawned agent can be retuned in place, and the roster adopts the session's level", async () => {
@@ -649,21 +646,6 @@ test("a model-only retune keeps the agent's current thinking level", async () =>
 	assert.equal(result.ok, true);
 	assert.equal(session.thinkingLevel, "low");
 	assert.equal(engine.get("echo")?.thinkingLevel, "low");
-});
-
-test("aborting an agent interrupts its running bash before stopping the agent loop", async () => {
-	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
-	withMain(engine, []);
-	const session = new FakeSession();
-	const spawner = createSpawner({
-		engine,
-		resolveModel: () => ({ provider: "t", id: "m", model: {} }),
-		createSession: async () => ({ session }),
-	});
-	await spawner.spawnAgent({ name: "child", systemPrompt: "r" }, "main");
-	// This is the path /subagents-pause and the per-agent pause take.
-	await engine.get("child")?.handle.abort();
-	assert.deepEqual(session.lifecycle, ["abortBash", "abort"]);
 });
 
 test("panel input reaches the child as a real user message", async () => {

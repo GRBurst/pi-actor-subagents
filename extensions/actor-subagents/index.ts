@@ -592,7 +592,6 @@ export default function subagents(pi: ExtensionAPI) {
       sendUserMessage: (text) =>
         session.sendUserMessage(text, { deliverAs: "steer" }),
       abort: () => session.abort(),
-      abortBash: () => session.abortBash(),
       shutdown: async () => {
         const runner = session.extensionRunner;
         if (runner.hasHandlers("session_shutdown")) {
