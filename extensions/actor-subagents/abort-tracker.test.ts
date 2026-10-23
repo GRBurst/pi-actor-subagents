@@ -15,7 +15,7 @@ function gate() {
 }
 
 test("an abort is pending until it settles, and only for the selected agents", async () => {
-	const tracker = new AbortTracker();
+	const tracker = new AbortTracker<string>();
 	const a = gate();
 	const b = gate();
 	tracker.track("a", a.abort, () => {});
@@ -28,7 +28,7 @@ test("an abort is pending until it settles, and only for the selected agents", a
 });
 
 test("a failing abort goes to onError and still settles", async () => {
-	const tracker = new AbortTracker();
+	const tracker = new AbortTracker<string>();
 	const a = gate();
 	const errors: unknown[] = [];
 	tracker.track("a", a.abort, (error) => errors.push(error));
@@ -40,7 +40,7 @@ test("a failing abort goes to onError and still settles", async () => {
 });
 
 test("every abort of an agent stays pending until it settles, in any order", async () => {
-	const tracker = new AbortTracker();
+	const tracker = new AbortTracker<string>();
 	const first = gate();
 	const second = gate();
 	tracker.track("a", first.abort, () => {});

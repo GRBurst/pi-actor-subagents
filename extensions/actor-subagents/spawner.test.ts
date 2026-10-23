@@ -569,7 +569,9 @@ test("kill closes a child session exactly once in detach-abortBash-abort-shutdow
 	await spawner.spawnAgent({ name: "child", systemPrompt: "r" }, "main");
 	const close = engine.get("child")?.close;
 	assert.ok(close);
-	await Promise.all([close(), close()]);
+	const closing = [close(), close()];
+	assert.equal(session.lifecycle[0], "detach", "detached synchronously, before the first await");
+	await Promise.all(closing);
 
 	const result = await engine.kill("main", ["child"]);
 

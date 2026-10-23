@@ -130,8 +130,17 @@ function createSessionCloser(session: SessionLike, detach: () => void = () => {}
 	let closing: Promise<void> | undefined;
 	return () => {
 		if (closing) return closing;
+		let failure: unknown;
+		// Detach synchronously, before anything is awaited (Correctness by Construction): the closer
+		// runs on a removed record, so no event of this dying session may reach the engine, where a
+		// re-spawned namesake would own the name. Engine.killSubtree relies on this to cut off a
+		// whole subtree at once (AgentRecord.close).
+		try {
+			detach();
+		} catch (error) {
+			failure = error;
+		}
 		closing = (async () => {
-			let failure: unknown;
 			const attempt = async (action: () => Promise<void> | void): Promise<void> => {
 				try {
 					await action();
@@ -139,10 +148,6 @@ function createSessionCloser(session: SessionLike, detach: () => void = () => {}
 					failure ??= error;
 				}
 			};
-			// Detach first (Correctness by Construction): the closer runs on a removed record, so no
-			// event of this dying session may reach the engine, where a re-spawned namesake would own
-			// the name.
-			await attempt(detach);
 			// Bash before abort: abort() waits for the session to go idle, which a running bash
 			// command would otherwise stretch out for as long as it takes.
 			await attempt(() => session.abortBash());

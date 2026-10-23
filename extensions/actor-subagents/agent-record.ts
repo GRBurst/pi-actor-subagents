@@ -124,7 +124,11 @@ export interface AgentRecord {
 	pending?: boolean;
 	/** Messages buffered while pending (flushed to the session on attach). */
 	buffer?: RoutedAgentMessage[];
-	/** Idempotent ordered runtime teardown — awaited on kill or foreground shutdown. */
+	/**
+	 * Idempotent ordered runtime teardown — awaited on kill or foreground shutdown. Detaches the
+	 * session's events synchronously, before its first await (`createSessionCloser` in spawner.ts),
+	 * so a caller can cut off several sessions at once by starting their closes together.
+	 */
 	close?: () => Promise<void>;
 	/**
 	 * Swap the live session's model and/or thinking level (SDK adapter in spawner.wire).

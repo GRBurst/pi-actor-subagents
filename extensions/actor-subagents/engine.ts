@@ -83,9 +83,10 @@ export class Engine {
 	// Graph tracking (in-memory, survives /reload via the singleton, resets on pi restart).
 	private readonly messageEdges = new Map<string, Map<string, number>>(); // from -> (to -> count)
 	private readonly caps: Caps;
-	// Aborts started by startAbort() (pause, refused turn) and not yet finished, per agent. resume() waits for them: an abort
+	// Aborts started by startAbort() (pause, refused turn) and not yet finished, per agent record:
+	// identity, not name, so a killed agent's late abort never stops a re-spawned namesake. resume() waits for them: an abort
 	// that lands after the agent runs again would kill the turn resume just started.
-	private readonly aborts = new AbortTracker();
+	private readonly aborts = new AbortTracker<AgentRecord>();
 
 	// Note: no TS parameter properties — Node's strip-only mode (node --test on .ts)
 	// does not support them.
@@ -271,8 +272,11 @@ export class Engine {
 
 		// Inversion: remove first so no new message can enter a runtime while it closes.
 		for (const r of subtree) this.agents.delete(r.name);
-		for (const r of subtree) {
-			await this.closeRecord(r);
+		// Start every teardown before the first await: each `close` detaches its session synchronously
+		// (AgentRecord.close), so no event of any of them can reach a re-spawned namesake meanwhile.
+		const closing = subtree.map((r) => this.closeRecord(r));
+		for (const [i, r] of subtree.entries()) {
+			await closing[i];
 			this.emit({ type: "kill", name: r.name, by, ts: Date.now() });
 		}
 		return subtree.map((r) => r.name);
@@ -365,7 +369,7 @@ export class Engine {
 	 * would be killed by the late abort. The waiting resume releases what buffered meanwhile.
 	 */
 	private isStopped(rec: AgentRecord): boolean {
-		return this.isAgentPaused(rec) || this.aborts.pending((name) => name === rec.name).length > 0;
+		return this.isAgentPaused(rec) || this.aborts.pending((r) => r === rec).length > 0;
 	}
 
 	/**
@@ -375,9 +379,13 @@ export class Engine {
 	 */
 	private startAbort(rec: AgentRecord): void {
 		this.aborts.track(
-			rec.name,
+			rec,
 			() => rec.handle.abort(),
-			(error) => this.reportError(rec.name, `abort failed: ${error instanceof Error ? error.message : String(error)}`),
+			(error) => {
+				// A killed agent's failure is not its namesake's.
+				if (this.agents.get(rec.name) !== rec) return;
+				this.reportError(rec.name, `abort failed: ${error instanceof Error ? error.message : String(error)}`);
+			},
 		);
 	}
 
@@ -533,8 +541,8 @@ export class Engine {
 		// Re-scan after every wait: a pause and resume in between can start a new abort. No await
 		// follows the last scan, so nothing can land between it and the release below.
 		for (;;) {
-			const names = new Set(running().map((rec) => rec.name));
-			const pending = this.aborts.pending((name) => names.has(name));
+			const live = new Set(running());
+			const pending = this.aborts.pending((rec) => live.has(rec));
 			if (pending.length === 0) break;
 			await Promise.all(pending);
 		}

@@ -402,6 +402,45 @@ test("kill cascades to the whole subtree, deepest first", async () => {
 	);
 });
 
+test("kill starts every teardown of the subtree before awaiting any", async () => {
+	const e = new Engine({ maxAgents: 9, maxSpawnDepth: 9 });
+	const started: string[] = [];
+	let finishChild: (() => void) | undefined;
+	e.addAgent(mainRecord());
+	e.addAgent({ ...mainRecord(), name: "parent", depth: 1, close: async () => void started.push("parent") });
+	e.addAgent({
+		...mainRecord(),
+		name: "child",
+		spawnedBy: "parent",
+		depth: 2,
+		close: () => (started.push("child"), new Promise<void>((resolve) => (finishChild = resolve))),
+	});
+	const killing = e.kill("main", ["parent"]);
+	assert.deepEqual(started, ["child", "parent"], "the parent's session is cut off while the child still closes");
+	finishChild?.();
+	assert.deepEqual((await killing).affected, ["child", "parent"]);
+});
+
+test("a killed agent's late abort neither stops nor blames a re-spawned namesake", async () => {
+	const e = new Engine(caps);
+	let failAbort: ((error: Error) => void) | undefined;
+	e.addAgent({
+		...mainRecord(),
+		name: "a",
+		depth: 1,
+		handle: { deliver: async () => {}, abort: () => new Promise<void>((_, reject) => (failAbort = reject)) },
+	});
+	e.pause("main", ["a"]);
+	await e.kill("main", ["a"]);
+	const delivered: unknown[] = [];
+	e.addAgent({ ...mainRecord(), name: "a", depth: 1, handle: { deliver: async (m) => void delivered.push(m), abort: async () => {} } });
+	assert.equal((await e.route("main", "a", "hi")).outcome, "delivered");
+	failAbort?.(new Error("late"));
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	assert.equal(e.events.some((ev) => ev.type === "error"), false);
+	assert.equal(delivered.length, 1);
+});
+
 test("kill refuses 'main' and unknown agents", async () => {
 	const e = new Engine(caps);
 	e.addAgent(mainRecord());
