@@ -6,6 +6,7 @@ import {
 } from "./agent-message.ts";
 import { type AgentStatus, formatStatus, formatStatusDetail } from "./agent-status.ts";
 import { formatEtaSuffix } from "./eta.ts";
+import { EXTENSION_STATUS_MAX } from "./extension-status.ts";
 import { formatModelThinking, type ThinkingLevel } from "./thinking-level.ts";
 
 export interface ContextUsageLike {
@@ -241,7 +242,8 @@ export function formatRoster(
 		{ key: "context", collapseRank: 4, fit: "end", cellOf: (e) => e.context },
 		{ key: "custom", collapseRank: 3, fit: "end", cap: CUSTOM_STATUS_MAX, cellOf: (e) => e.customStatus ?? "" },
 		{ key: "targets", collapseRank: 1, fit: "end", cellOf: (e) => e.targets ?? "" },
-		{ key: "extensions", collapseRank: 2, fit: "end", cellOf: (e) => e.extensions ?? "" },
+		// Capped like one entry: several verbose statuses get an ellipsis instead of collapsing the column for every agent.
+		{ key: "extensions", collapseRank: 2, fit: "end", cap: EXTENSION_STATUS_MAX, cellOf: (e) => e.extensions ?? "" },
 	];
 
 	// Natural width per column = widest content across agents, clamped to its cap.

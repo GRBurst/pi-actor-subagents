@@ -234,6 +234,11 @@ test("formatRoster: custom status capped at 32 with a trailing ellipsis", () => 
 	assert.doesNotMatch(row, /x{33}/);
 });
 
+test("formatRoster: joined extension statuses are capped with a trailing ellipsis", () => {
+	const row = formatRoster([re({ extensions: `${"x".repeat(40)} ${"y".repeat(40)}` })], 200)[0];
+	assert.match(row, /x{39}…$/);
+});
+
 test("formatRoster: rows are flush left — no cursor indent column", () => {
 	const rows = formatRoster([re({ name: "a" }), re({ name: "b" })], 200, { selectedIndex: 1 });
 	assert.match(rows[0], /^a/);
