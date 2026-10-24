@@ -80,6 +80,8 @@ export interface RosterEntry {
 	etaTs?: number;
 	/** Send targets cell (formatSendTargets); appended in full, never truncated. */
 	targets?: string;
+	/** Extension statuses cell (extension-status.ts formatExtensionStatuses); plain text. */
+	extensions?: string;
 }
 
 /**
@@ -160,11 +162,14 @@ export function formatModel(model: string | undefined, thinkingLevel: ThinkingLe
 //
 // One single-line row per agent, columns aligned across rows. Reading order — identity first,
 // then what the agent IS, then what it runs on, then its progress signals:
-//   name · system-status · model · eta · context · custom-status · targets
+//   name · system-status · model · eta · context · custom-status · targets · extensions
 // Protected columns (name, system-status) are never hidden: they are what makes a row readable
 // at all. The rest collapse — whole column dropped, all rows — when the terminal is too narrow,
 // least informative first:
-//   targets → custom-status → context → eta → model
+//   targets → extensions → custom-status → context → eta → model
+// Extensions comes last although it outranks targets: it is the only column with foreign text,
+// whose glyphs (e.g. emoji) may be wider than their string length, so at the end of the row a
+// misjudged width cannot shift any other column.
 // The name cell carries the spawn-tree indent (one space per depth level), added on top of the
 // name's own cap so nesting never costs name characters.
 // Alignment requires a roster-wide pass (column widths = max content across agents), so this
@@ -196,7 +201,7 @@ function fitMiddle(s: string, w: number): string {
 
 interface ColSpec {
 	key: string;
-	// 0 = protected (never dropped); else the collapse order (1 dropped first … 5 dropped last).
+	// 0 = protected (never dropped); else the collapse order (1 dropped first … 6 dropped last).
 	collapseRank: number;
 	fit: "end" | "middle";
 	cap?: number;
@@ -231,11 +236,12 @@ export function formatRoster(
 			cellOf: (e) => `${" ".repeat(e.depth)}${fitMiddle(e.name, NAME_CAP)}`,
 		},
 		{ key: "status", collapseRank: 0, fit: "end", cap: SYS_STATUS_CAP, cellOf: (e) => formatStatus(e.status) },
-		{ key: "model", collapseRank: 5, fit: "end", cellOf: (e) => formatModel(e.model, e.thinkingLevel) },
-		{ key: "eta", collapseRank: 4, fit: "end", cellOf: (e) => (e.etaTs != null ? formatEtaSuffix(e.etaTs) : "") },
-		{ key: "context", collapseRank: 3, fit: "end", cellOf: (e) => e.context },
-		{ key: "custom", collapseRank: 2, fit: "end", cap: CUSTOM_STATUS_MAX, cellOf: (e) => e.customStatus ?? "" },
+		{ key: "model", collapseRank: 6, fit: "end", cellOf: (e) => formatModel(e.model, e.thinkingLevel) },
+		{ key: "eta", collapseRank: 5, fit: "end", cellOf: (e) => (e.etaTs != null ? formatEtaSuffix(e.etaTs) : "") },
+		{ key: "context", collapseRank: 4, fit: "end", cellOf: (e) => e.context },
+		{ key: "custom", collapseRank: 3, fit: "end", cap: CUSTOM_STATUS_MAX, cellOf: (e) => e.customStatus ?? "" },
 		{ key: "targets", collapseRank: 1, fit: "end", cellOf: (e) => e.targets ?? "" },
+		{ key: "extensions", collapseRank: 2, fit: "end", cellOf: (e) => e.extensions ?? "" },
 	];
 
 	// Natural width per column = widest content across agents, clamped to its cap.

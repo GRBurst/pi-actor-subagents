@@ -2,6 +2,7 @@
  * An agent as the engine registers it: the record plus the session-side capabilities it holds
  * (handle, live view, retune adapter) and the tuning types that adapter speaks.
  */
+import type { ExtensionStatuses } from "./extension-status.ts";
 import type { RoutedAgentMessage } from "./agent-message.ts";
 import type { AgentActivity, StopReason } from "./agent-status.ts";
 import type { ThinkingLevel } from "./thinking-level.ts";
@@ -37,6 +38,12 @@ export interface AgentView {
 	/** The system prompt the agent runs with (shown at the top of the transcript). */
 	getSystemPrompt?(): string;
 	getContextUsage(): { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
+	/**
+	 * Footer statuses the agent's extensions set through `ctx.ui.setStatus` (extension-status.ts).
+	 * Owned by the session, like context usage, so they live and die with it. Optional: test and
+	 * restored views without a live session have none.
+	 */
+	getExtensionStatuses?(): ExtensionStatuses;
 	/**
 	 * The in-progress assistant message of the current turn, or undefined when idle. Lives only
 	 * in the event stream (session.messages gets it at message_end), so the panel seeds it on

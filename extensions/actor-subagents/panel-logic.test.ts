@@ -147,7 +147,7 @@ test("formatRoster: name middle-ellipsis keeps the distinguishing tail (shared-p
 	assert.match(rows[1], /7\b/);
 });
 
-test("formatRoster: reading order is name, system status, model, ETA, context, custom status, targets", () => {
+test("formatRoster: reading order is name, system status, model, ETA, context, custom status, targets, extensions", () => {
 	const eta = new Date();
 	eta.setHours(15, 20, 0, 0);
 	const row = formatRoster(
@@ -159,11 +159,24 @@ test("formatRoster: reading order is name, system status, model, ETA, context, c
 				context: "15k/200k",
 				customStatus: "parsing files",
 				targets: "\u279cmain[3]",
+				extensions: "\u23f32",
 			}),
 		],
 		200,
 	)[0];
-	assert.match(row, /scout.*idle.*opus.*ETA ~15:20.*15k\/200k.*parsing files.*\u279cmain\[3\]/);
+	assert.match(row, /scout.*idle.*opus.*ETA ~15:20.*15k\/200k.*parsing files.*\u279cmain\[3\].*\u23f32/);
+});
+
+test("formatRoster: extension statuses collapse after targets and before the custom status", () => {
+	const e = re({ name: "agent", customStatus: "running tests", targets: "\u279cmain[3]", extensions: "jobs:2" });
+	const at = (w: number) => formatRoster([e], w)[0];
+	const widths = Array.from({ length: 80 }, (_, i) => i + 10);
+	const firstWith = (pattern: RegExp) => widths.find((w) => pattern.test(at(w)));
+	const targets = firstWith(/\u279cmain/);
+	const extensions = firstWith(/jobs:2/);
+	const custom = firstWith(/running tests/);
+	assert.ok(targets && extensions && custom);
+	assert.ok(custom < extensions && extensions < targets, `${custom} < ${extensions} < ${targets}`);
 });
 
 test("formatRoster: ETA renders in its own column; column absent when no agent has one", () => {

@@ -8,6 +8,7 @@ import type { AgentRecord } from "./agent-record.ts";
 import type { ControlResult, EngineResumeResult } from "./control-result.ts";
 import type { Reaction } from "./engine.ts";
 import { formatCustomStatus } from "./eta.ts";
+import { describeExtensionStatuses } from "./extension-status.ts";
 import { formatModelThinking } from "./thinking-level.ts";
 
 /** Compact relative age: 3s / 4m / 2h. */
@@ -83,10 +84,12 @@ export function formatSnapshot(
 		const isMain = a.name === "main";
 		const turns = isMain ? "-" : String(a.turns);
 		const origin = isMain ? "(foreground)" : `(by ${a.spawnedBy}${queued})`;
+		// Last, like the roster's extensions column: foreign text of any width cannot misalign the rest.
+		const extensions = describeExtensionStatuses(a.view?.getExtensionStatuses?.());
 		return (
 			`  ${nameCell(o).padEnd(nameW)} ${rel.padEnd(6)} ${fit(status, statusW)} ` +
 			`turns:${turns.padEnd(3)} ctx:${ctx.padEnd(4)} last ${formatAge(now - a.lastActivity).padEnd(4)} ` +
-			`${model}  ${origin}`
+			`${model}  ${origin}${extensions ? `  ${extensions}` : ""}`
 		);
 	});
 	return ["agents:", ...rows].join("\n");

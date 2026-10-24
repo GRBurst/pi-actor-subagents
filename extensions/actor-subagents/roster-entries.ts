@@ -6,6 +6,7 @@
 import type { OrderedAgent } from "./agent-order.ts";
 import type { AgentRecord } from "./agent-record.ts";
 import type { Engine } from "./engine.ts";
+import { formatExtensionStatuses } from "./extension-status.ts";
 import { formatContext, formatSendTargets, type RosterEntry, rosterDepth } from "./panel-logic.ts";
 
 export function rosterEntries(
@@ -25,5 +26,6 @@ export function rosterEntries(
 		customStatus: a.customStatus,
 		etaTs: a.etaTs,
 		targets: formatSendTargets(matrix, a.name, live),
+		extensions: formatExtensionStatuses(a.view?.getExtensionStatuses?.()),
 	}));
 }

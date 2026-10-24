@@ -24,6 +24,9 @@ class FakeSession implements SessionLike {
 	getContextUsage() {
 		return { tokens: 0, contextWindow: 1000, percent: 0 };
 	}
+	getExtensionStatuses() {
+		return {};
+	}
 	/** Stands in for the session's tool registry: only 'known' has a definition. */
 	getToolDefinition(name: string) {
 		return name === "known" ? { name, renderCall: () => undefined } : undefined;

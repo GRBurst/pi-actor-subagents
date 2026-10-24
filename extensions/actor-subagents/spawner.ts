@@ -3,6 +3,7 @@
  * index.ts injects the real pi/SDK adapters (createSession, resolveModel, ...).
  * Design: ../../../DESIGN.md
  */
+import type { ExtensionStatuses } from "./extension-status.ts";
 import type { RoutedAgentMessage } from "./agent-message.ts";
 import { formatStatusDetail, type StopReason } from "./agent-status.ts";
 import type { AgentHandle, AgentRecord, AgentView } from "./agent-record.ts";
@@ -59,6 +60,8 @@ export interface SessionLike {
 	getToolDefinition(name: string): unknown;
 	readonly messages: unknown[];
 	getContextUsage(): { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
+	/** Current `ctx.ui.setStatus` entries of the session's extensions (extension-status.ts). */
+	getExtensionStatuses(): ExtensionStatuses;
 }
 
 /** Resolved model: provider/id for display + opaque SDK model object for createSession. */
@@ -286,6 +289,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 			// skills, etc.).
 			getSystemPrompt: () => systemPrompt,
 			getContextUsage: () => session.getContextUsage(),
+			getExtensionStatuses: () => session.getExtensionStatuses(),
 			getStreamingMessage: () => streamingRef.msg,
 			getToolDefinition: (toolName) => session.getToolDefinition(toolName),
 			subscribe: (l) => session.subscribe(l),

@@ -246,3 +246,9 @@ test("formatSnapshot keeps the columns aligned across indent levels", () => {
 	).split("\n").slice(1);
 	assert.equal(rows[0].indexOf("turns:"), rows[1].indexOf("turns:"));
 });
+
+test("formatSnapshot appends extension statuses with their keys at the end of the row", () => {
+	const view = { getContextUsage: () => undefined, getExtensionStatuses: () => ({ "bash-async": "⏳2", lsp: "3 errors" }) };
+	const agents = [rec({ name: "coder", view: view as unknown as AgentRecord["view"] })];
+	assert.match(snapshot(agents, "main"), /\(by main\) {2}bash-async: ⏳2, lsp: 3 errors$/m);
+});

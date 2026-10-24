@@ -50,7 +50,7 @@ Optional file: `~/.pi/agent/actor-subagents/settings.json` (inside Pi's configur
 
 - `maxAgents`: maximum live background agents (default: `8`).
 - `maxSpawnDepth`: maximum hierarchy depth (default: `3`). Both limits must be positive integers; missing or invalid values use their defaults. Changes apply after restarting Pi.
-- `childExtensions`: extension whitelist for subagents (default: `[]`). List extension files or directories; children do not inherit Pi's discovered extensions. Actor-subagents' orchestration tools are always available and need no whitelist entry. Changes apply to newly spawned agents. The example path assumes `pi install npm:pi-infinite-context` in the default Pi setup.
+- `childExtensions`: extension whitelist for subagents (default: `[]`). List extension files or directories; children do not inherit Pi's discovered extensions. Actor-subagents' orchestration tools are always available and need no whitelist entry. Changes apply to newly spawned agents. The example path assumes `pi install npm:pi-infinite-context` in the default Pi setup. Child extensions run with `ctx.mode === "rpc"` and `ctx.hasUI === true`: their `ctx.ui.setStatus` texts appear in the roster and in `list_subagents`, and dialogs (`confirm`, `select`, `input`, …) resolve as cancelled.
 
 ## Coordination
 
