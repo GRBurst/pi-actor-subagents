@@ -10,11 +10,12 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { headlessUiContext } from "./headless-ui-context.ts";
+import { bindHeadlessExtensions } from "./bind-headless-extensions.ts";
 
-// Contract with the installed Pi: child sessions are bound as headless UI hosts
-// (headless-ui-context.ts, used in index.ts createSession). Extensions must see hasUI true and
-// mode "rpc", their setStatus calls must reach the host, and dialogs must resolve as cancelled.
+// Contract with the installed Pi: child sessions start their extensions as unattended
+// (bind-headless-extensions.ts, used in index.ts createSession). Extensions must see hasUI false
+// and mode "print", their setStatus calls must still reach the host, and a dialog called anyway
+// must resolve as cancelled.
 // Offline: the model is never called.
 const model: Model<"openai-responses"> = {
 	id: "test-model", name: "Test model", api: "openai-responses", provider: "openai",
@@ -22,8 +23,8 @@ const model: Model<"openai-responses"> = {
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 10000, maxTokens: 1000,
 };
 
-test("installed Pi: a headless UI context captures setStatus and cancels dialogs", async (t) => {
-	const dir = mkdtempSync(join(tmpdir(), "pi-headless-ui-"));
+test("installed Pi: unattended extensions see no UI, and their statuses are captured", async (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "pi-bind-headless-"));
 	t.after(() => rmSync(dir, { recursive: true, force: true }));
 	const settingsManager = SettingsManager.inMemory({});
 	const seen: { hasUI?: boolean; mode?: string; confirmed?: boolean; selected?: unknown } = {};
@@ -50,12 +51,11 @@ test("installed Pi: a headless UI context captures setStatus and cancels dialogs
 	t.after(() => session.dispose());
 
 	const statuses: [string, string | undefined][] = [];
-	const uiContext = headlessUiContext(session.extensionRunner, (key, text) => void statuses.push([key, text]));
-	await session.bindExtensions({ mode: "rpc", uiContext });
+	await bindHeadlessExtensions(session, (key, text) => void statuses.push([key, text]));
 
 	assert.deepEqual(statuses, [["probe", "ready"]]);
-	assert.equal(seen.hasUI, true);
-	assert.equal(seen.mode, "rpc");
+	assert.equal(seen.hasUI, false);
+	assert.equal(seen.mode, "print");
 	assert.equal(seen.confirmed, false, "confirm resolves as declined");
 	assert.equal(seen.selected, undefined, "select resolves as cancelled");
 });

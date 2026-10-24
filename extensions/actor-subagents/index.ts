@@ -42,7 +42,7 @@ import {
 } from "./panel-logic.ts";
 import { rosterEntries } from "./roster-entries.ts";
 import { type ExtensionStatuses, withExtensionStatus } from "./extension-status.ts";
-import { headlessUiContext } from "./headless-ui-context.ts";
+import { bindHeadlessExtensions } from "./bind-headless-extensions.ts";
 import { createSubagentsPanel } from "./panel.ts";
 import { createRosterWidget } from "./roster-widget.ts";
 import {
@@ -559,18 +559,18 @@ export default function subagents(pi: ExtensionAPI) {
       settingsManager: childSettings,
     });
     // SDK sessions do not start extension lifecycles until the host explicitly binds them.
-    // Children are headless UI hosts that capture extension footer statuses (headless-ui-context.ts).
+    // Children's extensions run unattended, with their footer statuses captured
+    // (bind-headless-extensions.ts).
     // The statuses are owned by this session (read via the view, like context usage), so a late
     // write from a killed child can never reach a re-spawned agent of the same name.
     let extensionStatuses: ExtensionStatuses = {};
-    const uiContext = headlessUiContext(session.extensionRunner, (key, text) => {
+    await bindHeadlessExtensions(session, (key, text) => {
       const next = withExtensionStatus(extensionStatuses, key, text, settings.childExtensionStatusKeys);
       if (next === extensionStatuses) return;
       extensionStatuses = next;
       // Writes arrive outside any tool call (job timers, session_start), so redraw here.
       updateStatus();
     });
-    await session.bindExtensions({ mode: "rpc", uiContext });
     const managedSession: SessionLike = {
       sendAgentMessage: (message, options) =>
         session.sendCustomMessage(toCustomAgentMessage(message), {
