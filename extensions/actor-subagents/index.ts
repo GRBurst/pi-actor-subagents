@@ -36,13 +36,11 @@ import {
   formatResumeResult,
 } from "./feed.ts";
 import {
-  formatContext,
   formatRoster,
-  formatSendTargets,
-  rosterDepth,
   type StatusTone,
   swarmStateLine,
 } from "./panel-logic.ts";
+import { rosterEntries } from "./roster-entries.ts";
 import { createSubagentsPanel } from "./panel.ts";
 import { createRosterWidget } from "./roster-widget.ts";
 import {
@@ -426,22 +424,9 @@ export default function subagents(pi: ExtensionAPI) {
               : tone === "busy"
                 ? theme.bg("toolSuccessBg", label)
                 : theme.fg("dim", label);
-          const matrix = engine.getMessageMatrix();
-          // The matrix is historical; only live names may appear in the targets column.
-          const live = engine.liveNames();
           // Render at Pi's supplied width: resizing and other widgets can change the available space.
           const rosterLines = formatRoster(
-            background.map(({ agent: a, depth }) => ({
-              name: a.name,
-              depth: rosterDepth(depth),
-              model: a.model,
-              thinkingLevel: a.thinkingLevel,
-              context: formatContext(a.view?.getContextUsage()),
-              status: engine.status(a),
-              customStatus: a.customStatus,
-              etaTs: a.etaTs,
-              targets: formatSendTargets(matrix, a.name, live),
-            })),
+            rosterEntries(engine, background),
             width,
             { styleStatus: styler },
           ).map((line) => truncateToWidth(line, width));

@@ -27,16 +27,14 @@ import type { Engine } from "./engine.ts";
 import {
 	agentDetailLines,
 	statusTone,
-	formatContext,
 	formatRoster,
-	rosterDepth,
-	formatSendTargets,
 	type StatusTone,
 	moveSelection,
 	panelRows,
 	swarmStateLine,
 	transcriptViewport,
 } from "./panel-logic.ts";
+import { rosterEntries } from "./roster-entries.ts";
 import {
 	type AssistantComponent,
 	type RawMessage,
@@ -396,21 +394,8 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 			lines.push(theme.fg("accent", title + "─".repeat(closeStart - visibleWidth(title)) + closeLabel));
 			renderedNames = agents().map((a) => a.name);
 			const styler = styleStatus(theme);
-			const matrix = deps.engine.getMessageMatrix();
-			// The matrix is historical; only live names may appear in the targets column.
-			const live = deps.engine.liveNames();
 			for (const line of formatRoster(
-				ordered().map(({ agent: a, depth }) => ({
-					name: a.name,
-					depth: rosterDepth(depth),
-					model: a.model,
-					thinkingLevel: a.thinkingLevel,
-					context: formatContext(a.view?.getContextUsage()),
-					status: deps.engine.status(a),
-					customStatus: a.customStatus,
-					etaTs: a.etaTs,
-					targets: formatSendTargets(matrix, a.name, live),
-				})),
+				rosterEntries(deps.engine, ordered()),
 				width,
 				{
 					styleStatus: styler,
