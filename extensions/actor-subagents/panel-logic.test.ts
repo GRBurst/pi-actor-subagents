@@ -136,6 +136,20 @@ test("formatRoster: aligns the status column across rows (shared name-column wid
 	assert.equal(rows[0].indexOf("idle"), rows[1].indexOf("thinking")); // same x → aligned
 });
 
+test("formatRoster: the status column has a floor and only grows across renders, up to its cap", () => {
+	const tool = (name: string) => [re({ name: "ab", status: { kind: "working", phase: "tool", tool: name }, context: "9k" })];
+	const contextAt = (rows: string[]) => rows[0].indexOf("9k");
+	const statusWidth = { width: 0 };
+	const idleRow = formatRoster([re({ name: "ab", context: "9k" })], 200, { statusWidth });
+	// The floor covers every fixed label, so idle → bash → thinking keeps the next column in place.
+	assert.equal(contextAt(formatRoster(tool("bash"), 200, { statusWidth })), contextAt(idleRow));
+	const wide = formatRoster(tool("mcp_playwright_click"), 200, { statusWidth });
+	assert.ok(contextAt(wide) > contextAt(idleRow));
+	// After a long tool name, a short label keeps the widened column instead of snapping back.
+	assert.equal(contextAt(formatRoster(tool("bash"), 200, { statusWidth })), contextAt(wide));
+	assert.equal(statusWidth.width, 18); // SYS_STATUS_CAP: "mcp_playwright_click" is cut
+});
+
 test("formatRoster: name middle-ellipsis keeps the distinguishing tail (shared-prefix names stay distinct)", () => {
 	const rows = formatRoster(
 		[re({ name: "risk-R-UniformApp-pipeline-5" }), re({ name: "risk-R-UniformApp-pipeline-7" })],

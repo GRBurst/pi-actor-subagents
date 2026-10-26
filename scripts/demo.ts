@@ -76,7 +76,7 @@ export default function demo(pi: ExtensionAPI) {
       await ctx.ui.custom<void>((tui, theme, kb, done) => {
         const panel = createSubagentsPanel({
           engine, cwd: ctx.cwd, hideThinking: true, toolsExpanded: false,
-          setToolsExpanded: () => {}, listModels: () => [],
+          setToolsExpanded: () => {}, listModels: () => [], statusWidth: { width: 0 },
           setAgentModel: async () => ({ ok: false, msg: "This demo has no model sessions" }),
         }, tui, theme, kb as unknown as { matches(data: string, keybinding: string): boolean }, done);
         // Select the reviewer's real transcript and leave a human message drafted in the editor.

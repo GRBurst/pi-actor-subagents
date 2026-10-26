@@ -181,6 +181,19 @@ export function formatModel(model: string | undefined, thinkingLevel: ThinkingLe
 const NAME_CAP = 24; // names beyond this are middle-elided (keeps the distinguishing tail)
 export const CUSTOM_STATUS_MAX = 32; // hard cap on the agent-set status (also stated in the set_status prompt)
 const SYS_STATUS_CAP = 18; // short labels only (formatStatus); a long tool name is cut
+// Floor of the status column: the longest fixed label of formatStatus ("truncated"), so switching
+// between idle/thinking/writing/paused/spawning and short tool names never moves later columns.
+const SYS_STATUS_MIN = 9;
+
+/**
+ * The status column's width across renders. It only grows: the label changes on every phase or
+ * tool switch, and a column that tracked the current widest label would shift every column to its
+ * right each time. formatRoster raises it to the widest label seen (up to SYS_STATUS_CAP), so a
+ * long custom tool name widens the column once and it stays. The caller owns its lifetime.
+ */
+export interface StatusWidth {
+	width: number;
+}
 
 /** Truncate to width with a trailing ellipsis (plain-text width). */
 function fitEnd(s: string, w: number): string {
@@ -224,6 +237,8 @@ export function formatRoster(
 		styleStatus?: (label: string, tone: StatusTone) => string;
 		/** Applied to the selected row as a whole (e.g. a background highlight). */
 		styleSelected?: (line: string) => string;
+		/** Read as the status column's minimum width and raised to this render's width. */
+		statusWidth?: StatusWidth;
 	} = {},
 ): string[] {
 	const styleStatus = opts.styleStatus ?? ((l) => l);
@@ -253,6 +268,14 @@ export function formatRoster(
 		for (const e of entries) w = Math.max(w, c.cellOf(e).length);
 		widthOf.set(c.key, c.cap != null ? Math.min(w, c.cap) : w);
 	}
+	// The status column never shrinks (StatusWidth); it is protected, so a wider floor only ever
+	// makes lower-ranked columns collapse sooner at narrow widths.
+	const statusWidth = Math.min(
+		SYS_STATUS_CAP,
+		Math.max(widthOf.get("status") ?? 0, SYS_STATUS_MIN, opts.statusWidth?.width ?? 0),
+	);
+	widthOf.set("status", statusWidth);
+	if (opts.statusWidth) opts.statusWidth.width = statusWidth;
 
 	// Drop any collapsible column that is empty for every agent — e.g. nobody has send targets, or
 	// nobody set an ETA, which is the only reason the ETA column ever appears at all.

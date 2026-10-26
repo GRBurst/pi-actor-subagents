@@ -23,7 +23,7 @@ function fixture(initialAgent?: string, tui = { requestRender() {}, terminal: { 
 	const retuned: string[] = [];
 	const panel = createSubagentsPanel({
 		engine, cwd: process.cwd(), initialAgent, hideThinking: true, toolsExpanded: false,
-		setToolsExpanded() {}, listModels: () => ["test/model", "test/other"],
+		setToolsExpanded() {}, listModels: () => ["test/model", "test/other"], statusWidth: { width: 0 },
 		setAgentModel: async ({ name }) => { retuned.push(name); return { ok: true, msg: "retuned" }; },
 	}, tui, {
 		fg: (_color, text) => text,

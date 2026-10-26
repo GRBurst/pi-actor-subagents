@@ -29,6 +29,7 @@ import {
 	statusTone,
 	formatRoster,
 	type StatusTone,
+	type StatusWidth,
 	moveSelection,
 	panelRows,
 	swarmStateLine,
@@ -57,6 +58,8 @@ interface PanelDeps {
 	listModels: () => string[];
 	/** Retune the selected agent; the returned message is shown on the panel's notice line. */
 	setAgentModel: (spec: { name: string; model?: string; thinkingLevel?: string }) => Promise<{ ok: boolean; msg: string }>;
+	/** Status column width shared with the persistent roster (index.ts), so it outlives each panel. */
+	statusWidth: StatusWidth;
 }
 
 // The factory's keybindings arg. We only need action matching, so declare the one
@@ -399,6 +402,7 @@ export function createSubagentsPanel(deps: PanelDeps, tui: TuiLike, theme: Theme
 				width,
 				{
 					styleStatus: styler,
+					statusWidth: deps.statusWidth,
 					selectedIndex: selectedIndex(),
 					// Selection is a full-row highlight instead of a cursor glyph, so the roster starts
 					// flush left and no width is spent on an indent column.

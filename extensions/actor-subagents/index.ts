@@ -38,6 +38,7 @@ import {
 import {
   formatRoster,
   type StatusTone,
+  type StatusWidth,
   swarmStateLine,
 } from "./panel-logic.ts";
 import { rosterEntries } from "./roster-entries.ts";
@@ -386,6 +387,9 @@ export default function subagents(pi: ExtensionAPI) {
   let scopedModels: string[] = [];
   // While the /subagents panel is open, hide the persistent roster (otherwise doubled).
   let panelOpen = false;
+  // One status column width for the persistent roster and the panel (panel-logic.ts StatusWidth):
+  // the footer widget is rebuilt on every refresh, so its state must live here.
+  const rosterStatusWidth: StatusWidth = { width: 0 };
 
   // Capture the model from every foreground handler ctx (more reliable than model_select alone).
   const captureForegroundModel = (m: ModelLike | undefined) => {
@@ -430,7 +434,7 @@ export default function subagents(pi: ExtensionAPI) {
           const rosterLines = formatRoster(
             rosterEntries(engine, background),
             width,
-            { styleStatus: styler },
+            { styleStatus: styler, statusWidth: rosterStatusWidth },
           ).map((line) => truncateToWidth(line, width));
           const running = background.filter(
             (o) => engine.status(o.agent).kind === "working",
@@ -887,6 +891,7 @@ export default function subagents(pi: ExtensionAPI) {
             toolsExpanded,
             setToolsExpanded: (v) => panelUi.setToolsExpanded?.(v),
             listModels,
+            statusWidth: rosterStatusWidth,
             setAgentModel: (spec) =>
               setAgentModel("user", spec as Parameters<typeof setAgentModel>[1]),
           },
