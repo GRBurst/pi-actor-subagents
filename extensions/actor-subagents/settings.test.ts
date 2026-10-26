@@ -6,7 +6,7 @@ test("an empty or unreadable settings file yields the defaults and no child exte
 	for (const input of ["", "not json", "{}", "null", "[]"]) {
 		assert.deepEqual(
 			parseSettings(input),
-			{ caps: DEFAULT_CAPS, childExtensions: [], childExtensionStatusKeys: undefined },
+			{ caps: DEFAULT_CAPS, childExtensions: [], childExtensionStatusKeys: undefined, errorNoticeGraceMs: 0 },
 			input,
 		);
 	}
@@ -52,7 +52,7 @@ test("child extensions fail closed for missing, malformed, or mixed entries", ()
 test("valid caps and child extensions are read from the same file", () => {
 	assert.deepEqual(
 		parseSettings(JSON.stringify({ maxAgents: 3, childExtensions: ["/one.ts"] })),
-		{ caps: { ...DEFAULT_CAPS, maxAgents: 3 }, childExtensions: ["/one.ts"], childExtensionStatusKeys: undefined },
+		{ caps: { ...DEFAULT_CAPS, maxAgents: 3 }, childExtensions: ["/one.ts"], childExtensionStatusKeys: undefined, errorNoticeGraceMs: 0 },
 	);
 });
 
@@ -63,5 +63,13 @@ test("extension status keys are a list of non-empty strings, otherwise every key
 	assert.deepEqual(parseSettings(JSON.stringify({ childExtensionStatusKeys: [] })).childExtensionStatusKeys, []);
 	for (const childExtensionStatusKeys of ["bash-async", [""], [1], null]) {
 		assert.equal(parseSettings(JSON.stringify({ childExtensionStatusKeys })).childExtensionStatusKeys, undefined);
+	}
+});
+
+test("the error notice grace period is a non-negative integer of milliseconds, otherwise 0", () => {
+	assert.equal(parseSettings(JSON.stringify({ errorNoticeGraceMs: 7000 })).errorNoticeGraceMs, 7000);
+	assert.equal(parseSettings(JSON.stringify({ errorNoticeGraceMs: 0 })).errorNoticeGraceMs, 0);
+	for (const errorNoticeGraceMs of [-1, 1.5, "7000", null]) {
+		assert.equal(parseSettings(JSON.stringify({ errorNoticeGraceMs })).errorNoticeGraceMs, 0, String(errorNoticeGraceMs));
 	}
 });

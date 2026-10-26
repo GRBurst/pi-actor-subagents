@@ -195,8 +195,10 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 			// at message_end, so the two are never reference-equal and the panel's identity dedup
 			// cannot fire. This mirrors Pi's own main chat (streamingMessage = undefined at message_end).
 			if (ev.type === "message_end") {
-				const msg = ev.message as { role?: string } | undefined;
+				const msg = ev.message as { role?: string; stopReason?: string } | undefined;
 				if (msg?.role === "assistant") streamingRef.msg = undefined;
+				// A good answer after an error (a retried turn) drops the parent's pending error notice.
+				if (msg?.role === "assistant" && msg.stopReason !== "error" && msg.stopReason !== "aborted") engine.recordRecovery(name);
 			}
 			// Only an assistant message opens a phase: a message_start for a silently appended notice
 			// (or the run's own prompt) is not work, and must not mark an idle agent as thinking.

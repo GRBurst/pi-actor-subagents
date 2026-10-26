@@ -1518,6 +1518,117 @@ test("terminal errors route once per failed run to the live direct parent, never
 	}
 });
 
+/** Timers a test fires by hand, recording each requested delay. */
+function manualTimers() {
+	const pending = new Map<number, () => void>();
+	const delays: number[] = [];
+	let next = 0;
+	return {
+		delays,
+		pending: () => pending.size,
+		setTimer: (fn: () => void, ms: number) => {
+			delays.push(ms);
+			pending.set(++next, fn);
+			return next;
+		},
+		clearTimer: (id: unknown) => void pending.delete(id as number),
+		fire: () => {
+			const due = [...pending.values()];
+			pending.clear();
+			for (const fn of due) fn();
+		},
+	};
+}
+
+/** main with one child, on an engine whose error notices wait errorNoticeGraceMs = 7000. */
+function graceSetup() {
+	const timers = manualTimers();
+	const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 }, { errorNoticeGraceMs: 7000, setTimer: timers.setTimer, clearTimer: timers.clearTimer });
+	const main = noticeAgent("main", "main", 0);
+	e.addAgent(main.record);
+	e.addAgent({ ...mainRecord(), name: "child", depth: 1 });
+	return { e, main, timers };
+}
+
+test("with a grace period the parent hears of an error after it; the error state and event are immediate", () => {
+	const { e, main, timers } = graceSetup();
+	e.reportError("child", "rate limited");
+	assert.equal(e.get("child")?.stopReason, "error");
+	assert.equal(e.events.filter((ev) => ev.type === "error").length, 1);
+	assert.equal(main.delivered.length, 0);
+	assert.deepEqual(timers.delays, [7000]);
+	timers.fire();
+	assert.equal(main.delivered.length, 1);
+	assert.match(main.delivered[0]?.parts[0]?.content ?? "", /child entered the error state: rate limited\.$/);
+	assert.equal(main.delivered[0]?.parts[0]?.actionable, true);
+});
+
+test("a successful assistant message within the grace period drops the pending error notice", () => {
+	const { e, main, timers } = graceSetup();
+	e.reportError("child", "rate limited");
+	e.recordRecovery("child");
+	assert.equal(timers.pending(), 0);
+	timers.fire();
+	assert.deepEqual(main.delivered, []);
+	assert.doesNotThrow(() => e.recordRecovery("ghost"));
+});
+
+test("a new error within the grace period keeps the first error's deadline and reports the latest", () => {
+	const { e, main, timers } = graceSetup();
+	e.reportError("child", "attempt 1");
+	e.beginTurn("child");
+	e.reportError("child", "attempt 2");
+	assert.deepEqual(timers.delays, [7000], "the wait is measured from the first error, not restarted");
+	assert.equal(timers.pending(), 1);
+	timers.fire();
+	assert.equal(main.delivered.length, 1);
+	assert.match(main.delivered[0]?.parts[0]?.content ?? "", /attempt 2\.$/);
+});
+
+test("a grace period that ends while a newer turn runs sends nothing; that turn's error is then reported at once", () => {
+	for (const running of ["begun", "handed over"] as const) {
+		const timers = manualTimers();
+		const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 }, { errorNoticeGraceMs: 7000, setTimer: timers.setTimer, clearTimer: timers.clearTimer });
+		const main = noticeAgent("main", "main", 0);
+		const child = noticeAgent("child", "main", 1);
+		e.addAgent(main.record);
+		e.addAgent(child.record);
+		e.reportError("child", "attempt 1");
+		if (running === "begun") e.beginTurn("child");
+		else child.state.busy = true;
+		timers.fire();
+		assert.equal(main.delivered.length, 0, `${running}: the child is not in the error state when the period ends`);
+		child.state.busy = false;
+		e.beginTurn("child");
+		e.reportError("child", "attempt 2");
+		assert.deepEqual(timers.delays, [7000], `${running}: the period already passed, so no second wait`);
+		assert.equal(main.delivered.length, 1, running);
+		assert.match(main.delivered[0]?.parts[0]?.content ?? "", /attempt 2\.$/);
+	}
+});
+
+test("a turn that ends without an error closes the streak; a later error waits again", () => {
+	const { e, main, timers } = graceSetup();
+	e.reportError("child", "attempt 1");
+	e.beginTurn("child");
+	e.setStopReason("child", "aborted");
+	assert.equal(timers.pending(), 0);
+	e.beginTurn("child");
+	e.reportError("child", "much later");
+	assert.deepEqual(timers.delays, [7000, 7000]);
+	assert.deepEqual(main.delivered, []);
+	timers.fire();
+	assert.equal(main.delivered.length, 1);
+});
+
+test("a child killed within the grace period is not reported", async () => {
+	const { e, main, timers } = graceSetup();
+	e.reportError("child", "rate limited");
+	await e.kill("main", ["child"]);
+	timers.fire();
+	assert.deepEqual(main.delivered, []);
+});
+
 test("error input buffers for a paused or still-stopping parent until explicit resume", async () => {
 	for (const stopping of [false, true]) {
 		const e = new Engine({ maxAgents: 4, maxSpawnDepth: 3 });

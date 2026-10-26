@@ -337,6 +337,43 @@ test("retries route one parent error message per settled logical run", async () 
 	assert.deepEqual(parentInbox, [], "no duplicate silent error notice");
 });
 
+test("a successful assistant message in the child cancels a pending error notice; a failed one does not", async () => {
+	const fired: (() => void)[] = [];
+	const engine = new Engine(
+		{ maxAgents: 8, maxSpawnDepth: 3 },
+		{ errorNoticeGraceMs: 7000, setTimer: (fn) => fired.push(fn), clearTimer: (id) => void fired.splice((id as number) - 1, 1, () => {}) },
+	);
+	const woken: RoutedAgentMessage[] = [];
+	withMain(engine, woken);
+	const session = new FakeSession();
+	const spawner = createSpawner({
+		engine,
+		resolveModel: () => ({ provider: "t", id: "m", model: {} }),
+		createSession: async () => ({ session }),
+	});
+	await spawner.spawnAgent({ name: "worker", systemPrompt: "work" }, "main");
+	woken.length = 0;
+	const failRun = (detail: string) => {
+		session.emit("agent_start");
+		const failed = { role: "assistant", stopReason: "error", errorMessage: detail };
+		session.messages.push(failed);
+		session.emit("message_end", failed);
+		session.emit("agent_end");
+		session.emit("agent_settled");
+	};
+
+	failRun("rate limited");
+	assert.equal(fired.length, 1, "the notice waits");
+	// An extension retries the turn: its failed attempts keep the notice pending...
+	failRun("rate limited again");
+	// ...and its first good answer drops it.
+	session.emit("agent_start");
+	session.emit("message_end", { role: "assistant", stopReason: "stop" });
+	for (const fn of fired) fn();
+	assert.deepEqual(woken, []);
+	assert.equal(engine.events.filter((e) => e.type === "error").length, 2);
+});
+
 test("a notice for a busy parent waits for its run to settle, then is appended without a turn", async () => {
 	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
 	withMain(engine, []);

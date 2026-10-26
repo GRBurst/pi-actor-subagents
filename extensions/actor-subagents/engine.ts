@@ -76,6 +76,25 @@ const asTarget = (rec: AgentRecord) => ({ name: rec.name, parent: rec.spawnedBy 
 /** Feed preview of a message body: one short excerpt, never the whole payload. */
 const previewOf = (content: string): string => (content.length > 60 ? `${content.slice(0, 60)}...` : content);
 
+/** Engine options besides the caps; like the caps, fixed for the engine's lifetime. */
+export interface EngineOptions {
+	/**
+	 * How long a child's error waits before its parent is told (settings.ts), counted from the first
+	 * error of a streak; later errors do not restart it. A successful assistant message or a turn that
+	 * ends without an error closes the streak and drops the notice; 0 tells the parent at once.
+	 */
+	errorNoticeGraceMs?: number;
+	setTimer?: (fn: () => void, ms: number) => unknown;
+	clearTimer?: (id: unknown) => void;
+}
+
+/** A grace timer must not keep a print-mode pi alive. */
+const unrefTimer = (fn: () => void, ms: number): unknown => {
+	const timer = setTimeout(fn, ms);
+	timer.unref?.();
+	return timer;
+};
+
 export class Engine {
 	readonly events: AgentEvent[] = [];
 	private readonly agents = new Map<string, AgentRecord>();
@@ -87,11 +106,20 @@ export class Engine {
 	// identity, not name, so a killed agent's late abort never stops a re-spawned namesake. resume() waits for them: an abort
 	// that lands after the agent runs again would kill the turn resume just started.
 	private readonly aborts = new AbortTracker<AgentRecord>();
+	// Open error streaks, per record (identity, like `aborts`): the grace timer while it runs, none
+	// once the period ended while a newer turn ran (that turn's error is then reported at once).
+	private readonly errorStreaks = new Map<AgentRecord, { timer?: unknown }>();
+	private readonly errorNoticeGraceMs: number;
+	private readonly setTimer: NonNullable<EngineOptions["setTimer"]>;
+	private readonly clearTimer: NonNullable<EngineOptions["clearTimer"]>;
 
 	// Note: no TS parameter properties — Node's strip-only mode (node --test on .ts)
 	// does not support them.
-	constructor(caps: Caps) {
+	constructor(caps: Caps, options: EngineOptions = {}) {
 		this.caps = caps;
+		this.errorNoticeGraceMs = options.errorNoticeGraceMs ?? 0;
+		this.setTimer = options.setTimer ?? unrefTimer;
+		this.clearTimer = options.clearTimer ?? ((id) => clearTimeout(id as ReturnType<typeof setTimeout>));
 	}
 
 	private emit(e: AgentEvent): void {
@@ -271,7 +299,10 @@ export class Engine {
 		const subtree = subtreePostOrder(this.agents, name);
 
 		// Inversion: remove first so no new message can enter a runtime while it closes.
-		for (const r of subtree) this.agents.delete(r.name);
+		for (const r of subtree) {
+			this.agents.delete(r.name);
+			this.endErrorStreak(r);
+		}
 		// Start every teardown before the first await: each `close` detaches its session synchronously
 		// (AgentRecord.close), so no event of any of them can reach a re-spawned namesake meanwhile.
 		const closing = subtree.map((r) => this.closeRecord(r));
@@ -322,7 +353,10 @@ export class Engine {
 	 */
 	async shutdownAll(): Promise<void> {
 		const records = [...this.agents.values()].filter((rec) => rec.name !== "main");
-		for (const rec of records) this.agents.delete(rec.name);
+		for (const rec of records) {
+			this.agents.delete(rec.name);
+			this.endErrorStreak(rec);
+		}
 		await Promise.all(records.map((rec) => this.closeRecord(rec)));
 	}
 
@@ -700,10 +734,58 @@ export class Engine {
 		const entersError = reason === "error" && rec.stopReason !== "error";
 		rec.stopReason = reason;
 		if (reason !== "error") rec.errorReason = undefined;
+		// A turn that ended without an error: the child got past its error by itself.
+		if (reason !== undefined && reason !== "error") this.endErrorStreak(rec);
 		if (!entersError) return;
 		rec.errorReason = detail ?? "the turn failed after the SDK's retries";
 		this.emit({ type: "error", name, reason: rec.errorReason, ts: Date.now() });
-		this.announce({ kind: "error", target: asTarget(rec), reason: rec.errorReason });
+		this.announceErrorAfterGrace(rec, rec.errorReason);
+	}
+
+	/**
+	 * Tell the parent about the error once `errorNoticeGraceMs` passed without a recovery. A child
+	 * whose turn is retried (e.g. by an extension that re-prompts after a rate limit) may error and
+	 * recover several times in a row; only an error that stays unanswered is worth waking the parent.
+	 * The error state and the `error` event are never delayed, only the parent's message.
+	 *
+	 * The period runs from the first error of a streak and later errors do not restart it, so a
+	 * child that keeps failing is reported within one period. When it ends the parent is told the
+	 * latest reason, but only if the child is still in the error state; if a newer turn runs, that
+	 * turn's error (if any) is reported at once.
+	 */
+	private announceErrorAfterGrace(rec: AgentRecord, reason: string): void {
+		const streak = this.errorStreaks.get(rec);
+		if (this.errorNoticeGraceMs <= 0 || (streak && streak.timer === undefined)) {
+			this.endErrorStreak(rec);
+			this.announce({ kind: "error", target: asTarget(rec), reason });
+			return;
+		}
+		if (streak) return;
+		const opened: { timer?: unknown } = {};
+		opened.timer = this.setTimer(() => {
+			if (this.errorStreaks.get(rec) !== opened) return;
+			opened.timer = undefined;
+			// A killed or replaced child is no news for the parent any more.
+			if (this.agents.get(rec.name) !== rec) return void this.errorStreaks.delete(rec);
+			const latest = rec.errorReason;
+			if (rec.stopReason !== "error" || latest === undefined || rec.activity !== undefined || rec.handle.busy?.()) return;
+			this.errorStreaks.delete(rec);
+			this.announce({ kind: "error", target: asTarget(rec), reason: latest });
+		}, this.errorNoticeGraceMs);
+		this.errorStreaks.set(rec, opened);
+	}
+
+	private endErrorStreak(rec: AgentRecord): void {
+		const streak = this.errorStreaks.get(rec);
+		if (!streak) return;
+		if (streak.timer !== undefined) this.clearTimer(streak.timer);
+		this.errorStreaks.delete(rec);
+	}
+
+	/** The agent produced a successful assistant message: an error notice still waiting is moot. */
+	recordRecovery(name: string): void {
+		const rec = this.agents.get(name);
+		if (rec) this.endErrorStreak(rec);
 	}
 
 	/** Tell the parents what a lifecycle change did to their children (lifecycle-notice.ts decides). */

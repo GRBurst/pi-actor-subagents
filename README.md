@@ -45,7 +45,8 @@ Optional file: `~/.pi/agent/actor-subagents/settings.json` (inside Pi's configur
   "childExtensions": [
     "~/.pi/agent/npm/node_modules/pi-infinite-context/extensions/infinite-context/index.ts"
   ],
-  "childExtensionStatusKeys": ["bash-async"]
+  "childExtensionStatusKeys": ["bash-async"],
+  "errorNoticeGraceMs": 0
 }
 ```
 
@@ -53,10 +54,11 @@ Optional file: `~/.pi/agent/actor-subagents/settings.json` (inside Pi's configur
 - `maxSpawnDepth`: maximum hierarchy depth (default: `3`). Both limits must be positive integers; missing or invalid values use their defaults. Changes apply after restarting Pi.
 - `childExtensions`: extension whitelist for subagents (default: `[]`). List extension files or directories; children do not inherit Pi's discovered extensions. Actor-subagents' orchestration tools are always available and need no whitelist entry. Changes apply to newly spawned agents. The example path assumes `pi install npm:pi-infinite-context` in the default Pi setup. Child extensions run unattended, with `ctx.mode === "print"` and `ctx.hasUI === false`, so they take their headless paths instead of asking. Their `ctx.ui.setStatus` texts still appear in the roster and in `list_subagents` when they set them unconditionally, not only when `ctx.hasUI` is true.
 - `childExtensionStatusKeys`: status keys shown in the roster and in `list_subagents` of subagents (default: unset, which shows every key). Statuses with other keys are ignored. An invalid value shows every key. Changes apply to newly spawned agents.
+- `errorNoticeGraceMs`: how long a child's error waits before its parent is told, in milliseconds (default: `0`, tell at once). The time counts from the child's first error; a successful assistant message from the child, or a turn that ends without an error, drops the notice, so a turn that an extension retries after a transient failure (e.g. a rate limit) does not wake the parent. Further errors do not restart the wait: when it ends, the parent is told the latest error if the child is still in the error state, and otherwise as soon as the turn that is running then fails. Must be a non-negative integer; anything else means `0`. Changes apply after restarting Pi.
 
 ## Coordination
 
 - **Handshake:** a new child is instructed to send its parent its understanding of the task and clarification questions, then wait for a `send_message` go-ahead before working. This is an agent protocol, not an enforced scheduling barrier.
 - **Ownership:** every agent controls the agents it spawns and their descendants; messaging and inspection are open to all. `set_status` is for background agents.
-- **Errors:** a new child error sends its live direct parent a scheduler message: it requests a turn when idle, steers a busy parent, and buffers while the parent is paused or still stopping. It does not restart the child. Pause, resume and kill notices stay silent.
+- **Errors:** a new child error sends its live direct parent a scheduler message (after `errorNoticeGraceMs`, if set): it requests a turn when idle, steers a busy parent, and buffers while the parent is paused or still stopping. It does not restart the child. Pause, resume and kill notices stay silent.
 - **Persistence:** reopening the same saved main session restores agents paused; resume them explicitly. Buffered messages, progress, and ETA are not saved.

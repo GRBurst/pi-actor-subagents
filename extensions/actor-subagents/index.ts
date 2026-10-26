@@ -171,11 +171,13 @@ const RESUME_NUDGE = (now: Date, by: string) => {
 //      append/busy). A v26 instance would treat a string flag as foreign and lack these methods.
 // v28: terminal errors route actionable scheduler messages instead of silent notices; v27
 //      would retain the old announce/route methods after /reload and never wake a parent.
-const ENGINE_KEY = "__subagentsEngine_v28";
+// v29: the engine can hold a child's error notice for a grace period (errorNoticeGraceMs) and
+//      gains recordRecovery, which the child sessions' subscriptions call; a v28 instance lacks it.
+const ENGINE_KEY = "__subagentsEngine_v29";
 
 function getEngine(): Engine {
   const g = globalThis as Record<string, unknown>;
-  // Caps are read once, when this singleton is created: the swarm's limits stay fixed for as
+  // Caps and the error notice grace period are read once, when this singleton is created: they stay fixed for as
   // long as its agents live, so editing settings.json applies at the next pi start (or /reload,
   // which only rebuilds the engine when ENGINE_KEY changed).
   if (!g[ENGINE_KEY]) {
@@ -192,7 +194,8 @@ function getEngine(): Engine {
       delete g[key];
       void previous?.shutdownAll?.().catch(() => {});
     }
-    g[ENGINE_KEY] = new Engine(readSettings().caps);
+    const settings = readSettings();
+    g[ENGINE_KEY] = new Engine(settings.caps, { errorNoticeGraceMs: settings.errorNoticeGraceMs });
   }
   return g[ENGINE_KEY] as Engine;
 }

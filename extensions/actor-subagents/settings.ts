@@ -9,6 +9,8 @@
  *   (Inversion — the failure to design out is "unreadable file silently loads something").
  * - `childExtensionStatusKeys` is display-only, so it fails open: anything that is not exactly a
  *   list of non-empty strings shows every key, as if unset.
+ * - `errorNoticeGraceMs` only delays a message, so anything but a non-negative integer means 0
+ *   (no delay, the behaviour without the setting).
  */
 
 /** Numeric limits of one swarm. */
@@ -23,6 +25,8 @@ export interface Settings {
 	childExtensions: string[];
 	/** Child extension status keys kept for display; undefined keeps every key. */
 	childExtensionStatusKeys: string[] | undefined;
+	/** How long a child's error waits for a recovery before its parent is told; 0 tells it at once. */
+	errorNoticeGraceMs: number;
 }
 
 /** Applied per field, so an unset or invalid single cap does not disturb the others. */
@@ -34,6 +38,10 @@ export const DEFAULT_CAPS: Caps = {
 /** A limit is only usable as a count of agents or levels, hence positive integers only. */
 function positiveInt(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function nonNegativeInt(value: unknown): number {
+	return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
 function childExtensions(value: unknown): string[] {
@@ -67,5 +75,6 @@ export function parseSettings(json: string): Settings {
 		},
 		childExtensions: childExtensions(value?.childExtensions),
 		childExtensionStatusKeys: childExtensionStatusKeys(value?.childExtensionStatusKeys),
+		errorNoticeGraceMs: nonNegativeInt(value?.errorNoticeGraceMs),
 	};
 }
