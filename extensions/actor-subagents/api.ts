@@ -16,11 +16,12 @@
  * including a real agent's name or 'main'.
  */
 import type { AgentEvent } from "./agent-event.ts";
-import type { AgentRecord } from "./agent-record.ts";
-import type { AgentStatus } from "./agent-status.ts";
+import { type AgentInfo, agentInfo } from "./agent-info.ts";
 import type { Engine } from "./engine.ts";
 import { isThinkingLevel, type ThinkingLevel } from "./thinking-level.ts";
 import type { ToolGuard } from "./tool-guard.ts";
+
+export type { AgentInfo };
 
 export const API_KEY = "__subagentsApi_v1";
 
@@ -95,23 +96,6 @@ export type SpawnPolicyOptions = {
 };
 export type SpawnPolicyRegistration = SpawnPolicyOptions & { fn: SpawnPolicy };
 
-export type AgentInfo = {
-	/** Includes the foreground as `main` (its own parent, depth 0, no session transcript). */
-	name: string;
-	parent: string;
-	/** "" while the agent is still spawning (a reserved name without a session yet). */
-	sessionId: string;
-	/** "(spawning)" while the agent is still spawning. */
-	model: string;
-	thinkingLevel: ThinkingLevel | undefined;
-	state: "spawning" | "running" | "idle" | "paused";
-	idleSinceMs?: number;
-	lastRequestAt?: number;
-	contextTokens?: number;
-	costUsd?: number;
-	policyMeta?: unknown;
-};
-
 /**
  * Engine events as API consumers see them: exactly one `spawn` per agent, sent once its session
  * exists so it can carry `childSessionId` (a reservation's early spawn is held back and its
@@ -157,33 +141,6 @@ export interface InstalledApi extends SubagentsApiV1 {
 	spawnPolicyRegistration(): SpawnPolicyRegistration | undefined;
 	readonly engineKey: string | undefined;
 	rebind(deps: ApiDeps): void;
-}
-
-type AssistantLike = { role?: string; timestamp?: number; usage?: { cost?: { total?: number } } };
-
-/** One agent as api.list() reports it; usage is read from the live transcript. */
-export function agentInfo(rec: AgentRecord, status: AgentStatus, now: number): AgentInfo {
-	const state = rec.pending
-		? "spawning"
-		: status.kind === "paused"
-			? "paused"
-			: status.kind === "idle"
-				? "idle"
-				: "running";
-	const assistants = ((rec.view?.getMessages?.() ?? []) as AssistantLike[]).filter((m) => m.role === "assistant");
-	return {
-		name: rec.name,
-		parent: rec.spawnedBy,
-		sessionId: rec.sessionId ?? "",
-		model: rec.model,
-		thinkingLevel: rec.thinkingLevel,
-		state,
-		idleSinceMs: state === "idle" ? now - rec.lastActivity : undefined,
-		lastRequestAt: assistants.at(-1)?.timestamp,
-		contextTokens: rec.view?.getContextUsage()?.tokens ?? undefined,
-		costUsd: assistants.length ? assistants.reduce((sum, m) => sum + (m.usage?.cost?.total ?? 0), 0) : undefined,
-		policyMeta: rec.policyMeta,
-	};
 }
 
 /** Settles like `p`, or rejects with "no answer within <ms> ms" first; `ms` 0 waits forever. */

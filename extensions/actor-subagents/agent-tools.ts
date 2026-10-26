@@ -103,6 +103,8 @@ export interface AgentToolsDeps {
    * spawn_subagent keeps its inherit wording and has no `task` parameter.
    */
   spawnPolicyActive?: () => boolean;
+  /** Prompt-cache lifetime for list_subagents' cache column (settings.ts); unset or 0 hides it. */
+  promptCacheTtlMs?: () => number;
 }
 
 /** Build the toolset acting as `selfName`. */
@@ -316,7 +318,7 @@ export function makeAgentTools(
           content: [
             {
               type: "text",
-              text: formatSnapshot(ordered, selfName, (a) => engine.status(a)),
+              text: formatSnapshot(ordered, selfName, (a) => engine.status(a), Date.now(), deps.promptCacheTtlMs?.() ?? 0),
             },
           ],
           details: {},

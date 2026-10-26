@@ -304,6 +304,8 @@ export default function subagents(pi: ExtensionAPI) {
       persistRoster,
       updateStatus,
       spawnPolicyActive: () => api.spawnPolicy() !== undefined,
+      // Re-read per call like the other display settings, so an edit applies at the next listing.
+      promptCacheTtlMs: () => readSettings().promptCacheTtlMs,
     });
 
   // One fixed custom type gives every peer message a distinct, stable visual identity. The

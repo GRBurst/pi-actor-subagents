@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_CAPS, DEFAULT_SPAWN_POLICY_TIMEOUT_MS, parseSettings } from "./settings.ts";
+import { DEFAULT_CAPS, DEFAULT_PROMPT_CACHE_TTL_MS, DEFAULT_SPAWN_POLICY_TIMEOUT_MS, parseSettings } from "./settings.ts";
 
 test("an empty or unreadable settings file yields the defaults and no child extensions", () => {
 	for (const input of ["", "not json", "{}", "null", "[]"]) {
@@ -11,6 +11,7 @@ test("an empty or unreadable settings file yields the defaults and no child exte
 				childExtensions: [],
 				childExtensionStatusKeys: undefined,
 				spawnPolicyTimeoutMs: DEFAULT_SPAWN_POLICY_TIMEOUT_MS,
+				promptCacheTtlMs: DEFAULT_PROMPT_CACHE_TTL_MS,
 			},
 			input,
 		);
@@ -62,6 +63,7 @@ test("valid caps and child extensions are read from the same file", () => {
 			childExtensions: ["/one.ts"],
 			childExtensionStatusKeys: undefined,
 			spawnPolicyTimeoutMs: DEFAULT_SPAWN_POLICY_TIMEOUT_MS,
+			promptCacheTtlMs: DEFAULT_PROMPT_CACHE_TTL_MS,
 		},
 	);
 });
@@ -86,5 +88,14 @@ test("the spawn policy timeout defaults to 30 s, takes a non-negative integer, a
 			DEFAULT_SPAWN_POLICY_TIMEOUT_MS,
 			String(spawnPolicyTimeoutMs),
 		);
+	}
+});
+
+test("the prompt cache lifetime defaults to 5 minutes; 0 turns the cache column off", () => {
+	assert.equal(DEFAULT_PROMPT_CACHE_TTL_MS, 5 * 60_000);
+	assert.equal(parseSettings(JSON.stringify({ promptCacheTtlMs: 3_600_000 })).promptCacheTtlMs, 3_600_000);
+	assert.equal(parseSettings(JSON.stringify({ promptCacheTtlMs: 0 })).promptCacheTtlMs, 0);
+	for (const promptCacheTtlMs of [-1, 1.5, "300000", null]) {
+		assert.equal(parseSettings(JSON.stringify({ promptCacheTtlMs })).promptCacheTtlMs, DEFAULT_PROMPT_CACHE_TTL_MS, String(promptCacheTtlMs));
 	}
 });

@@ -18,8 +18,9 @@ const record = (name: string) => ({
 });
 
 /** The tool `name` acting as `self`, with the surrounding shell stubbed out. */
-function toolOf(engine: Engine, self: string, name: string) {
+function toolOf(engine: Engine, self: string, name: string, extra: { promptCacheTtlMs?: () => number } = {}) {
 	const tools = makeAgentTools(self, {
+		...extra,
 		engine,
 		spawnAgent: async () => ({ ok: true, msg: "" }),
 		setAgentModel: async () => ({ ok: true, msg: "" }),
@@ -181,4 +182,22 @@ test("with a spawn policy spawn_subagent leaves model and effort to it and passe
 	assert.equal(textOf(refused), "error: no card");
 	const failed = await spawnTool({ ok: false, msg: "error: cap" }).execute("c3", args, undefined, undefined, undefined as never);
 	assert.equal((failed as { isError?: boolean }).isError, undefined);
+});
+
+test("list_subagents shows cache warmth only with the configured prompt cache lifetime", async () => {
+	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
+	engine.addAgent(record("main"));
+	const now = Date.now();
+	engine.addAgent({
+		...record("worker"),
+		view: {
+			getMessages: () => [{ role: "assistant", timestamp: now - 60_000, usage: { cost: { total: 0.25 } } }],
+			getContextUsage: () => undefined,
+			subscribe: () => () => {},
+		} as never,
+	});
+	const list = (extra: { promptCacheTtlMs?: () => number }) =>
+		toolOf(engine, "main", "list_subagents", extra).execute("id", {}, undefined, undefined, undefined as never);
+	assert.match(textOf(await list({ promptCacheTtlMs: () => 10 * 60_000 })) ?? "", /cache=warm\(\d+m left\) \$0\.25/);
+	assert.doesNotMatch(textOf(await list({})) ?? "", /cache=/);
 });

@@ -45,7 +45,8 @@ Optional file: `~/.pi/agent/actor-subagents/settings.json` (inside Pi's configur
   "childExtensions": [
     "~/.pi/agent/npm/node_modules/pi-infinite-context/extensions/infinite-context/index.ts"
   ],
-  "childExtensionStatusKeys": ["bash-async"]
+  "childExtensionStatusKeys": ["bash-async"],
+  "promptCacheTtlMs": 300000
 }
 ```
 
@@ -54,6 +55,7 @@ Optional file: `~/.pi/agent/actor-subagents/settings.json` (inside Pi's configur
 - `childExtensions`: extension whitelist for subagents (default: `[]`). List extension files or directories; children do not inherit Pi's discovered extensions. Actor-subagents' orchestration tools are always available and need no whitelist entry. Changes apply to newly spawned agents. The example path assumes `pi install npm:pi-infinite-context` in the default Pi setup. Child extensions run unattended, with `ctx.mode === "print"` and `ctx.hasUI === false`, so they take their headless paths instead of asking. Their `ctx.ui.setStatus` texts still appear in the roster and in `list_subagents` when they set them unconditionally, not only when `ctx.hasUI` is true.
 - `childExtensionStatusKeys`: status keys shown in the roster and in `list_subagents` of subagents (default: unset, which shows every key). Statuses with other keys are ignored. An invalid value shows every key. Changes apply to newly spawned agents.
 - `spawnPolicyTimeoutMs`: how long a registered spawn policy (see below) may take to answer one spawn, in milliseconds (default: `30000`; `0` waits without a bound). A late answer fails the spawn. Invalid values use the default. Changes apply to the next spawn.
+- `promptCacheTtlMs`: your provider's prompt-cache lifetime in milliseconds (default: `300000`, Anthropic's default 5 minutes). `list_subagents` shows each agent's usage after its origin (extension statuses stay last), `cache=warm(1m left) ctx=143k $2.10`: whether its next request would still read the prompt cache (not shown while the agent is running), context tokens and cost so far. The cost is summed over the assistant messages in the agent's current transcript, so it is understated once an extension has folded or compacted older messages away. `0` leaves out `cache=`; an invalid value means the default. Changes apply at the next `list_subagents` call.
 
 ## Spawn policy API for extensions
 
