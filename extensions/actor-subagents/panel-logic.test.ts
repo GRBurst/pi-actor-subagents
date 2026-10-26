@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import {
 	formatContext,
 	formatRoster,
@@ -161,7 +162,7 @@ test("formatRoster: name middle-ellipsis keeps the distinguishing tail (shared-p
 	assert.match(rows[1], /7\b/);
 });
 
-test("formatRoster: reading order is name, system status, model, ETA, context, custom status, targets, extensions", () => {
+test("formatRoster: reading order is name, system status, extensions, model, ETA, context, custom status, targets", () => {
 	const eta = new Date();
 	eta.setHours(15, 20, 0, 0);
 	const row = formatRoster(
@@ -178,7 +179,20 @@ test("formatRoster: reading order is name, system status, model, ETA, context, c
 		],
 		200,
 	)[0];
-	assert.match(row, /scout.*idle.*opus.*ETA ~15:20.*15k\/200k.*parsing files.*\u279cmain\[3\].*\u23f32/);
+	assert.match(row, /scout.*idle.*\u23f32.*opus.*ETA ~15:20.*15k\/200k.*parsing files.*\u279cmain\[3\]/);
+});
+
+test("formatRoster: a wide glyph in the extensions column keeps later columns aligned", () => {
+	// "\u23f3" is one code unit but two terminal cells; rows with and without it must align.
+	const rows = formatRoster([re({ name: "a", extensions: "\u23f32" }), re({ name: "b", extensions: "x" })], 200);
+	const cellsBefore = (row: string, text: string) => visibleWidth(row.slice(0, row.indexOf(text)));
+	assert.equal(cellsBefore(rows[0], "x/y"), cellsBefore(rows[1], "x/y"));
+});
+
+test("formatRoster: truncation never splits a wide glyph and stays within the cap in cells", () => {
+	const row = formatRoster([re({ extensions: "\u23f3".repeat(30) })], 200)[0];
+	assert.ok(row.includes(`${"\u23f3".repeat(19)}\u2026`)); // 19 \u00d7 2 cells + ellipsis = 39 \u2264 40
+	assert.ok(!row.includes("\u23f3".repeat(20)));
 });
 
 test("formatRoster: extension statuses collapse after targets and before the custom status", () => {
@@ -250,7 +264,7 @@ test("formatRoster: custom status capped at 32 with a trailing ellipsis", () => 
 
 test("formatRoster: joined extension statuses are capped with a trailing ellipsis", () => {
 	const row = formatRoster([re({ extensions: `${"x".repeat(40)} ${"y".repeat(40)}` })], 200)[0];
-	assert.match(row, /x{39}…$/);
+	assert.match(row, /x{39}… /);
 });
 
 test("formatRoster: rows are flush left — no cursor indent column", () => {

@@ -1,4 +1,5 @@
-/** Pure helpers for the subagents panel — no pi/TUI dependency, fully testable. */
+/** Pure helpers for the subagents panel — no pi/TUI I/O, fully testable. */
+import { visibleWidth } from "@earendil-works/pi-tui";
 import {
 	AGENT_MESSAGE_CUSTOM_TYPE,
 	formatAgentMessageDisplay,
@@ -162,20 +163,20 @@ export function formatModel(model: string | undefined, thinkingLevel: ThinkingLe
 // ── responsive roster table (formatRoster) ──
 //
 // One single-line row per agent, columns aligned across rows. Reading order — identity first,
-// then what the agent IS, then what it runs on, then its progress signals:
-//   name · system-status · model · eta · context · custom-status · targets · extensions
+// then what the agent IS and is doing, then what it runs on, then its progress signals:
+//   name · system-status · extensions · model · eta · context · custom-status · targets
+// Extensions sits next to the system status because child extension statuses (e.g. bash-async's
+// running-jobs count) are live activity signals of the same agent.
 // Protected columns (name, system-status) are never hidden: they are what makes a row readable
 // at all. The rest collapse — whole column dropped, all rows — when the terminal is too narrow,
 // least informative first:
 //   targets → extensions → custom-status → context → eta → model
-// Extensions comes last although it outranks targets: it is the only column with foreign text,
-// whose glyphs (e.g. emoji) may be wider than their string length, so at the end of the row a
-// misjudged width cannot shift any other column.
 // The name cell carries the spawn-tree indent (one space per depth level), added on top of the
 // name's own cap so nesting never costs name characters.
 // Alignment requires a roster-wide pass (column widths = max content across agents), so this
-// replaces any per-row formatting. Layout math is plain-text (ASCII content + single-width
-// glyphs); status styling excludes the column padding and uses the unstyled text's width.
+// replaces any per-row formatting. Layout math uses terminal cell widths (visibleWidth), because
+// extension and custom statuses are foreign text whose glyphs (e.g. the emoji "⏳") are wider
+// than their string length; status styling excludes the column padding.
 // Callers still wrap each line in the ANSI-aware truncateToWidth as a final overflow guard.
 
 const NAME_CAP = 24; // names beyond this are middle-elided (keeps the distinguishing tail)
@@ -195,14 +196,36 @@ export interface StatusWidth {
 	width: number;
 }
 
-/** Truncate to width with a trailing ellipsis (plain-text width). */
+const GRAPHEMES = new Intl.Segmenter();
+
+/**
+ * Truncate plain text to `w` terminal cells with a trailing ellipsis. Cuts on grapheme boundaries
+ * so a wide glyph is never split; pi-tui's truncateToWidth is not used because it inserts ANSI
+ * resets, which would cut the selected row's background highlight.
+ */
 function fitEnd(s: string, w: number): string {
 	if (w <= 0) return "";
-	if (s.length <= w) return s;
-	return w === 1 ? "…" : `${s.slice(0, w - 1)}…`;
+	if (visibleWidth(s) <= w) return s;
+	let out = "";
+	let used = 0;
+	for (const { segment } of GRAPHEMES.segment(s)) {
+		const sw = visibleWidth(segment);
+		if (used + sw > w - 1) break;
+		out += segment;
+		used += sw;
+	}
+	return `${out}…`;
 }
 
-/** Truncate to width keeping head + tail (middle ellipsis) — for names, whose tail distinguishes. */
+/** Pad plain text with spaces to `w` terminal cells. */
+function padCells(s: string, w: number): string {
+	return s + " ".repeat(Math.max(0, w - visibleWidth(s)));
+}
+
+/**
+ * Truncate to width keeping head + tail (middle ellipsis) — for names, whose tail distinguishes.
+ * Code units equal cells here: agent names are restricted to [a-zA-Z0-9_-] (engine.ts).
+ */
 function fitMiddle(s: string, w: number): string {
 	if (w <= 0) return "";
 	if (s.length <= w) return s;
@@ -252,20 +275,20 @@ export function formatRoster(
 			cellOf: (e) => `${" ".repeat(e.depth)}${fitMiddle(e.name, NAME_CAP)}`,
 		},
 		{ key: "status", collapseRank: 0, fit: "end", cap: SYS_STATUS_CAP, cellOf: (e) => formatStatus(e.status) },
+		// Capped like one entry: several verbose statuses get an ellipsis instead of collapsing the column for every agent.
+		{ key: "extensions", collapseRank: 2, fit: "end", cap: EXTENSION_STATUS_MAX, cellOf: (e) => e.extensions ?? "" },
 		{ key: "model", collapseRank: 6, fit: "end", cellOf: (e) => formatModel(e.model, e.thinkingLevel) },
 		{ key: "eta", collapseRank: 5, fit: "end", cellOf: (e) => (e.etaTs != null ? formatEtaSuffix(e.etaTs) : "") },
 		{ key: "context", collapseRank: 4, fit: "end", cellOf: (e) => e.context },
 		{ key: "custom", collapseRank: 3, fit: "end", cap: CUSTOM_STATUS_MAX, cellOf: (e) => e.customStatus ?? "" },
 		{ key: "targets", collapseRank: 1, fit: "end", cellOf: (e) => e.targets ?? "" },
-		// Capped like one entry: several verbose statuses get an ellipsis instead of collapsing the column for every agent.
-		{ key: "extensions", collapseRank: 2, fit: "end", cap: EXTENSION_STATUS_MAX, cellOf: (e) => e.extensions ?? "" },
 	];
 
 	// Natural width per column = widest content across agents, clamped to its cap.
 	const widthOf = new Map<string, number>();
 	for (const c of cols) {
 		let w = 0;
-		for (const e of entries) w = Math.max(w, c.cellOf(e).length);
+		for (const e of entries) w = Math.max(w, visibleWidth(c.cellOf(e)));
 		widthOf.set(c.key, c.cap != null ? Math.min(w, c.cap) : w);
 	}
 	// The status column never shrinks (StatusWidth); it is protected, so a wider floor only ever
@@ -302,8 +325,8 @@ export function formatRoster(
 			// Separation of Concerns: highlight the status label, not the table's alignment padding.
 			// The selected row is left plain: a background reset inside it would cut its highlight.
 			return c.key === "status" && !selected
-				? styleStatus(fitted, statusTone(e.status)) + " ".repeat(w - fitted.length)
-				: fitted.padEnd(w);
+				? styleStatus(fitted, statusTone(e.status)) + " ".repeat(w - visibleWidth(fitted))
+				: padCells(fitted, w);
 		});
 		const line = cells.join(" ").replace(/ +$/, "");
 		return selected && opts.styleSelected ? opts.styleSelected(line) : line;
