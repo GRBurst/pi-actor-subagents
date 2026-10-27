@@ -462,21 +462,14 @@ export function makeAgentTools(
           context?.expanded ?? false,
         ),
       description:
-        "Set your short status line shown in list_subagents and the agents panel " +
-        "(e.g. 'parsing 500 files', 'waiting on review'). Pass empty string to clear. " +
-        `Keep it terse — one short phrase, ≤ ${CUSTOM_STATUS_MAX} chars (longer is truncated in the roster). ` +
-        "It must describe your CURRENT state, not a past action. " +
-        "Tool results normally carry start/finish wall-clock stamps (finish-only when start is unavailable) — use those stamps to " +
-        "gauge elapsed time and rates. Set etaMinutes (minutes from NOW until you're free) only " +
-        "from a concrete basis: a command's timeout, a known duration, or a measured rate; omit it " +
-        "when you would be guessing — no ETA beats a wrong one. It is fully respecified each call " +
-        "(omit to clear a prior ETA) and rendered as an absolute clock time, so do NOT write an " +
-        "ETA into the status text yourself. " +
-        "Update status when your phase changes, and before you END A TURN and go idle set it to a " +
-        "resting/outcome state (e.g. 'done', 'waiting for critic', 'blocked: needs X') or clear it — " +
-        "never leave a stale in-progress phrase like 'sending to editor' once you are idle. " +
-        "Do not restate the system status ('idle', 'thinking'): it is already displayed next to " +
-        "yours, so 'idle' here just renders as 'idle · idle'. Say WHY or WHAT, or clear it.",
+        `Set your status line (≤ ${CUSTOM_STATUS_MAX} chars), shown in list_subagents and the agents panel: ` +
+        "what you are doing or waiting for now, e.g. 'parsing 500 files', 'waiting for critic', 'blocked: needs API key'. " +
+        "It is cleared each time you start a turn. " +
+        "The system state (idle, thinking, tool) is shown next to it, so write only what that state cannot say. " +
+        "Empty string clears. " +
+        "etaMinutes: minutes from now until this status ends; set it only from a measured basis " +
+        "(a command timeout, tool-result timestamps, a measured rate). " +
+        "Each call replaces both status and ETA; omitting etaMinutes clears the ETA.",
       parameters: Type.Object({
         status: Type.String({
           description: `Short status phrase, ≤ ${CUSTOM_STATUS_MAX} chars; empty clears`,
@@ -484,7 +477,7 @@ export function makeAgentTools(
         etaMinutes: Type.Optional(
           Type.Number({
             description:
-              "Minutes from now until you're free; rendered as absolute clock time. Omit to clear.",
+              "Minutes from now until this status ends; rendered as absolute clock time. Omit to clear.",
           }),
         ),
       }),

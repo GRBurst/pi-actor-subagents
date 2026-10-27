@@ -20,7 +20,7 @@ export function agentSystemPrompt(
     '- send_message({to, content}): to is an array of agent names (multicast); fire-and-forget (e.g. ["main"]). It never waits for the reply, but it does report each receiver\'s state back to you.',
     "- list_subagents(): see who exists.",
     "- pause_subagents({names?}) / resume_subagents({names?}) / kill_subagents({names}): control the agents in your subtree (those you spawned, and theirs); each acts on the named agents' whole subtrees. Omitted, empty or whitespace-only names in pause/resume mean your direct children.",
-    "- set_status({status, etaMinutes?}): set your short status line (shown to others in list_subagents); empty string clears.",
+    "- set_status({status, etaMinutes?}): before a step you expect to take over a minute, set what you are doing. In the last tool batch before you end a turn, set your resting state ('waiting for critic', 'blocked: needs X', 'done'), alongside your final send_message if you send one.",
     "Peer messages and scheduler notices are prefixed with [message from <sender>]; human panel input is a real user turn.",
     "",
     "CRITICAL — active replies use send_message. Ordinary assistant text is not routed, but",
