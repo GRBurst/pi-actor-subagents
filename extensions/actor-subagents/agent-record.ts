@@ -102,7 +102,7 @@ export interface AgentRecord {
 	 * flag could contradict the phase, so that illegal state is now unrepresentable.
 	 */
 	activity?: AgentActivity;
-	/** Agent-set semantic status, appended to the system status (in-memory; resets on restart). */
+	/** Agent-set semantic status, appended to the system status (in-memory; resets on restart). Cleared with etaTs by spawner.ts at the next accepted turn after the agent ended one. */
 	customStatus?: string;
 	/** Absolute target time (epoch ms) for the agent's ETA, rendered as clock time. Set via set_status's etaMinutes; cleared when omitted. In-memory; resets on restart. */
 	etaTs?: number;
