@@ -809,3 +809,61 @@ test("recovered retries, handled tool failures, aborts and truncation do not rou
 		assert.equal(engine.events.filter((e) => e.type === "error").length, 0);
 	}
 });
+
+test("the agent's status is cleared when it starts a turn after ending one, and only then", async () => {
+	const engine = new Engine({ maxAgents: 8, maxSpawnDepth: 3 });
+	withMain(engine, []);
+	const session = new FakeSession();
+	const spawner = createSpawner({
+		engine,
+		resolveModel: () => ({ provider: "t", id: "m", model: {} }),
+		createSession: async () => ({ session }),
+	});
+	await spawner.spawnAgent({ name: "worker", systemPrompt: "work" }, "main");
+	const status = () => engine.get("worker")?.customStatus;
+	const toolCall = { role: "assistant", stopReason: "toolUse", content: [{ type: "toolCall" }] };
+	const finalAnswer = { role: "assistant", stopReason: "stop", content: [{ type: "text" }] };
+
+	// A fresh agent starts idle, so its first accepted turn clears.
+	engine.setCustomStatus("worker", "stale", 0);
+	session.emit("agent_start");
+	session.emit("turn_start");
+	assert.equal(status(), undefined);
+	assert.equal(engine.get("worker")?.etaTs, undefined, "the ETA belongs to the status and goes with it");
+
+	// A status set mid-run survives tool turns and the end of the run.
+	engine.setCustomStatus("worker", "parsing 500 files");
+	session.emit("message_end", toolCall);
+	session.emit("turn_start");
+	assert.equal(status(), "parsing 500 files");
+
+	// A failed attempt is not an end of turn: the retry's agent_start/turn_start keeps the status.
+	session.emit("message_end", { role: "assistant", stopReason: "error", content: [] });
+	session.emit("agent_end");
+	session.emit("agent_start");
+	session.emit("turn_start");
+	assert.equal(status(), "parsing 500 files");
+
+	// The resting status set alongside the final answer holds through the settle...
+	engine.setCustomStatus("worker", "waiting for critic");
+	session.emit("message_end", finalAnswer);
+	session.emit("agent_end");
+	session.emit("agent_settled");
+	assert.equal(status(), "waiting for critic");
+
+	// ...and a paused agent's refused turn keeps it.
+	engine.pause("main", ["worker"]);
+	session.emit("agent_start");
+	session.emit("turn_start");
+	assert.equal(status(), "waiting for critic");
+	session.emit("agent_settled");
+
+	// A reply steered in right after the final answer continues the same run, and still clears.
+	await engine.resume("main", ["worker"]);
+	session.emit("agent_start");
+	session.emit("turn_start");
+	engine.setCustomStatus("worker", "waiting for critic");
+	session.emit("message_end", finalAnswer);
+	session.emit("turn_start");
+	assert.equal(status(), undefined);
+});

@@ -27,6 +27,16 @@ function lastAssistantOutcome(
 	return undefined;
 }
 
+/**
+ * Is this the agent ending its turn: an assistant message that calls no tools? A failed provider
+ * attempt is not, because Pi may retry it within the same run (agent-session.js _prepareRetry).
+ */
+function isFinalAnswer(message: unknown): boolean {
+	const m = message as { role?: string; stopReason?: StopReason; content?: unknown } | undefined;
+	if (m?.role !== "assistant" || m.stopReason === "error") return false;
+	return !(Array.isArray(m.content) && m.content.some((c) => (c as { type?: string }).type === "toolCall"));
+}
+
 /** Minimal slice of an AgentSession that the orchestration needs. */
 export interface SessionLike {
 	/** Deliver peer traffic without representing it as a human-authored user message. */
@@ -173,17 +183,30 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 	// "aborted": a deliberate stop must not enter the error state or notify the parent. Our own fact
 	// decides, not the SDK's wording (The Map Is Not the Territory). agent_start clears it, so an
 	// abort that hit no run cannot mask an error in the next one.
+	//
+	// run.idle records that the agent ended its turn: its last assistant message called no tools,
+	// or the run settled. The agent's status line (set_status) describes the state it rested in, so
+	// the next accepted turn_start clears it (Correctness by Construction: a resting status like
+	// 'waiting for critic' cannot outlive the wait). The boundary is the agent's own end of turn, not
+	// agent_start: a message steered in right after a final answer continues the same run without a
+	// new agent_start, and agent_start also repeats for every retry attempt. A refused turn of a paused
+	// agent keeps the status. Pi awaits extension handlers before emitting agent_settled to listeners,
+	// so a late settle can set idle during the next run's work; that only delays the clearing to the
+	// next turn, which is accepted over extra tracking (KISS).
 	const subscribeBackground = (
 		name: string,
 		session: SessionLike,
 		streamingRef: { msg: unknown },
-		run: { abortRequested: boolean },
+		run: { abortRequested: boolean; idle: boolean },
 	): (() => void) => {
 		return session.subscribe((ev) => {
 			if (ev.type === "agent_start") run.abortRequested = false;
 			// The engine refuses a stopped agent's turn itself, through the agent's `handle.abort` (which marks
 			// `run.abortRequested`), so every abort it starts is tracked (engine.ts startAbort).
-			if (ev.type === "turn_start") engine.recordTurnStart(name);
+			if (ev.type === "turn_start" && !engine.recordTurnStart(name) && run.idle) {
+				run.idle = false;
+				engine.setCustomStatus(name, undefined);
+			}
 			if (ev.type === "message_start" || ev.type === "message_update") {
 				const msg = ev.message as { role?: string } | undefined;
 				if (msg?.role === "assistant") streamingRef.msg = msg;
@@ -197,6 +220,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 			if (ev.type === "message_end") {
 				const msg = ev.message as { role?: string } | undefined;
 				if (msg?.role === "assistant") streamingRef.msg = undefined;
+				if (isFinalAnswer(ev.message)) run.idle = true;
 			}
 			// Only an assistant message opens a phase: a message_start for a silently appended notice
 			// (or the run's own prompt) is not work, and must not mark an idle agent as thinking.
@@ -215,6 +239,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 				engine.endTurn(name);
 			}
 			if (ev.type === "agent_settled") {
+				run.idle = true;
 				// The SDK emits agent_end for every retry attempt. Only agent_settled closes the
 				// logical run, so deriving its outcome here produces one parent notice.
 				const outcome = lastAssistantOutcome(session.messages);
@@ -234,7 +259,7 @@ export function createSpawner(deps: SpawnerDeps): Spawner {
 		session: SessionLike,
 		systemPrompt: string,
 	): { handle: AgentHandle; view: AgentView; close: () => Promise<void>; reconfigure: NonNullable<AgentRecord["reconfigure"]> } => {
-		const run = { abortRequested: false };
+		const run = { abortRequested: false, idle: true };
 		// Turns handed to the session whose promise has not settled yet. Pi resolves a prompted
 		// delivery only after its run settles, and a user message runs a preflight before its run
 		// is marked active, so this covers the gap from hand-off to isStreaming. It cannot stick: it
